@@ -1,0 +1,17 @@
+{
+    "name": "projectquik.spherekit.database",
+    "rootNamespace": "",
+    "references": [
+        "GUID:d6d67d27a1e9eb0448430f4676f108e5",
+        "GUID:73cef9accc0fb4245ab44deb7292f299"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

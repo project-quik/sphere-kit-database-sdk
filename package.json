@@ -1,0 +1,16 @@
+{
+    "name": "co.projectquik.spherekit.database",
+    "version": "0.0.1",
+    "description": "The Database SDK for Sphere Kit.",
+    "displayName": "Sphere Kit Database",
+    "keywords": ["server", "backend", "database", "db", "sphere", "kit"],
+    "license": "Apache-2.0",
+    "author": {
+        "name": "Project Quik",
+        "email": "support@projectquik.co",
+        "url": "https://projectquik.co"
+    },
+    "dependencies": {
+        "com.unity.nuget.newtonsoft-json": "3.2.1"
+    }
+}
