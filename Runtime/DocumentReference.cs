@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace SphereKit
@@ -19,6 +20,21 @@ namespace SphereKit
         public async Task<Document> Get()
         {
             return await Database.GetDocument(this);
+        }
+        
+        public async Task Set(Dictionary<string, object> data)
+        {
+            await Database.SetDocument(this, data);
+        }
+        
+        public async Task Update(Dictionary<string, DocumentDataOperation> data)
+        {
+            await Database.UpdateDocument(this, data);
+        }
+
+        public async Task Delete()
+        {
+            await Database.DeleteDocument(this);
         }
     }
 }
