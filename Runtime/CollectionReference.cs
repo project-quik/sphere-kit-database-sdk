@@ -1,5 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using JetBrains.Annotations;
 
+#nullable enable
 namespace SphereKit
 {
     public class CollectionReference: DatabaseReference
@@ -13,6 +17,11 @@ namespace SphereKit
         public DocumentReference Document(string id)
         {
             return new DocumentReference($"{Path}/{id}", Database);
+        }
+
+        public async Task Query(Dictionary<string, DocumentQueryOperation>? query = null)
+        { 
+            await Database.QueryCollection(this, query);
         }
     }
 }
