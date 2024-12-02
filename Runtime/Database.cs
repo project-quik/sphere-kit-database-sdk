@@ -73,106 +73,12 @@ namespace SphereKit
             }
         }
 
-        internal async Task<Collection> QueryCollection(CollectionReference reference, Dictionary<string, DocumentQueryOperation>? query = null)
-        { 
-            Dictionary<string, object> ConvertQueryToRequestData(Dictionary<string, DocumentQueryOperation> innerQuery)
-            {
-                object ResolveOperationValue(DocumentQueryOperationType operationKey, object operationValue)
-                {
-                    switch (operationValue)
-                    {
-                        case DocumentQueryProjection[] or List<DocumentQueryProjection>:
-                        {
-                            var evalOperationValue = new Dictionary<string, object>
-                            {
-                                {"$eval", new List<string>()}
-                            };
-                            List<DocumentQueryProjection> projections;
-                            if (operationValue is DocumentQueryProjection[] projectionArray)
-                            {
-                                projections = new List<DocumentQueryProjection>(projectionArray);
-                            }
-                            else
-                            {
-                                projections = (List<DocumentQueryProjection>) operationValue;
-                            }
-                        
-                            foreach (var projection in projections)
-                            {
-                                ((List<string>) evalOperationValue["$eval"]).Add($"${projection.Field}");
-                            }
-                        
-                            operationValue = evalOperationValue;
-                            break;
-                        }
-                        case DocumentQueryProjection projection:
-                        {
-                            var evalOperationValue = new Dictionary<string, object>
-                            {
-                                {"$eval", $"${projection.Field}"}
-                            };
-                            operationValue = evalOperationValue;
-                            break;
-                        }
-                        case DocumentQueryOperation[] or List<DocumentQueryOperation>:
-                        {
-                            Debug.Log(operationKey);
-                            if (operationKey != DocumentQueryOperationType.ElementMatches)
-                            {
-                                throw new ArgumentException("You cannot have an array of queries for this operation since the field has not been specified.");
-                            }
-                            
-                            List<DocumentQueryOperation> queries;
-                            if (operationValue is DocumentQueryOperation[] queryArray)
-                            {
-                                queries = new List<DocumentQueryOperation>(queryArray);
-                            }
-                            else
-                            {
-                                queries = (List<DocumentQueryOperation>) operationValue;
-                            }
-
-                            operationValue = queries.ConvertAll<object>(eachQuery => new Dictionary<string, object> { { DocumentQueryOperation.GetStringOperationType(eachQuery.OperationType), ResolveOperationValue(operationKey, eachQuery.Value) } });
-                            
-                            break;
-                        }
-                        case Dictionary<string, DocumentQueryOperation> booleanQuery:
-                        {
-                            if (operationKey == DocumentQueryOperationType.ElementMatches)
-                            {
-                                throw new ArgumentException("ElementMatches operation cannot contain a query for another field.");
-                            }
-                            
-                            operationValue = ConvertQueryToRequestData(booleanQuery);
-                            
-                            break;
-                        }
-                    }
-                    
-                    return operationValue;
-                }
-                
-                var innerQueryRequestData = new Dictionary<string, object>();
-                
-                foreach (var (fieldKey, operation) in innerQuery)
-                {
-                    var operationKey = operation.OperationType;
-                    var operationValue = ResolveOperationValue(operationKey, operation.Value);
-
-                    innerQueryRequestData[fieldKey] = new Dictionary<string, object>
-                    {
-                        { DocumentQueryOperation.GetStringOperationType(operationKey), operationValue }
-                    };
-                }
-                
-                return innerQueryRequestData;
-            }
-            
-                        
+        internal async Task<Collection> QueryCollection(CollectionReference reference, DocumentQueryOperation[]? query = null)
+        {   
             var queryRequestData = new Dictionary<string, object>();
             if (query != null)
             {
-                queryRequestData = ConvertQueryToRequestData(query);
+                queryRequestData = DocumentQueryOperation.ConvertQueryToRequestData(query);
                 Debug.Log("Querying collection with query json: " + JsonConvert.SerializeObject(queryRequestData));
             }
             

@@ -19,7 +19,7 @@ namespace SphereKit
             return new DocumentReference($"{Path}/{id}", Database);
         }
 
-        public async Task Query(Dictionary<string, DocumentQueryOperation>? query = null)
+        public async Task Query(DocumentQueryOperation[]? query = null)
         { 
             await Database.QueryCollection(this, query);
         }
