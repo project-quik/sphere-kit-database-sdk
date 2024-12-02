@@ -116,6 +116,12 @@ namespace SphereKit
                         }
                         case DocumentQueryOperation[] or List<DocumentQueryOperation>:
                         {
+                            Debug.Log(operationKey);
+                            if (operationKey != DocumentQueryOperationType.ElementMatches)
+                            {
+                                throw new ArgumentException("You cannot have an array of queries for this operation since the field has not been specified.");
+                            }
+                            
                             List<DocumentQueryOperation> queries;
                             if (operationValue is DocumentQueryOperation[] queryArray)
                             {
@@ -126,12 +132,17 @@ namespace SphereKit
                                 queries = (List<DocumentQueryOperation>) operationValue;
                             }
 
-                            operationValue = queries.ConvertAll<object>(eachQuery => ResolveOperationValue(operationKey, eachQuery.Value));
+                            operationValue = queries.ConvertAll<object>(eachQuery => new Dictionary<string, object> { { DocumentQueryOperation.GetStringOperationType(eachQuery.OperationType), ResolveOperationValue(operationKey, eachQuery.Value) } });
                             
                             break;
                         }
                         case Dictionary<string, DocumentQueryOperation> booleanQuery:
                         {
+                            if (operationKey == DocumentQueryOperationType.ElementMatches)
+                            {
+                                throw new ArgumentException("ElementMatches operation cannot contain a query for another field.");
+                            }
+                            
                             operationValue = ConvertQueryToRequestData(booleanQuery);
                             
                             break;
@@ -146,36 +157,11 @@ namespace SphereKit
                 foreach (var (fieldKey, operation) in innerQuery)
                 {
                     var operationKey = operation.OperationType;
-                    var operationKeyStr = operationKey switch
-                    {
-                        DocumentQueryOperationType.Equal => "$eq",
-                        DocumentQueryOperationType.NotEqual => "$ne",
-                        DocumentQueryOperationType.GreaterThan => "$gt",
-                        DocumentQueryOperationType.GreaterThanOrEqual => "$gte",
-                        DocumentQueryOperationType.LessThan => "$lt",
-                        DocumentQueryOperationType.LessThanOrEqual => "$lte",
-                        DocumentQueryOperationType.In => "$in",
-                        DocumentQueryOperationType.NotIn => "$nin",
-                        DocumentQueryOperationType.Exists => "$exists",
-                        DocumentQueryOperationType.DataTypeIs => "$type",
-                        DocumentQueryOperationType.Modulo => "$mod",
-                        DocumentQueryOperationType.MatchesRegex => "$regex",
-                        DocumentQueryOperationType.GeoIntersects => "$geoIntersects",
-                        DocumentQueryOperationType.GeoWithin => "$geoWithin",
-                        DocumentQueryOperationType.GeoNear => "nearSphere",
-                        DocumentQueryOperationType.ContainsAllOf => "$all",
-                        DocumentQueryOperationType.ElementMatches => "$elemMatch",
-                        DocumentQueryOperationType.ArraySizeIs => "$size",
-                        DocumentQueryOperationType.And => "$and",
-                        DocumentQueryOperationType.Nor => "$nor",
-                        DocumentQueryOperationType.Or => "$or",
-                        _ => ""
-                    };
                     var operationValue = ResolveOperationValue(operationKey, operation.Value);
 
                     innerQueryRequestData[fieldKey] = new Dictionary<string, object>
                     {
-                        { operationKeyStr, operationValue }
+                        { DocumentQueryOperation.GetStringOperationType(operationKey), operationValue }
                     };
                 }
                 

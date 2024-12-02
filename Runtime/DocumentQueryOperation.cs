@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Codice.CM.Common.Checkin.Partial.DifferencesApplier;
 
 namespace SphereKit
 {
@@ -233,6 +234,35 @@ namespace SphereKit
             CheckNumberValue(size);
             
             return new DocumentQueryOperation(DocumentQueryOperationType.ArraySizeIs, size);
+        }
+
+        public static string GetStringOperationType(DocumentQueryOperationType operationType)
+        {
+            return operationType switch
+            {
+                DocumentQueryOperationType.Equal => "$eq",
+                DocumentQueryOperationType.NotEqual => "$ne",
+                DocumentQueryOperationType.GreaterThan => "$gt",
+                DocumentQueryOperationType.GreaterThanOrEqual => "$gte",
+                DocumentQueryOperationType.LessThan => "$lt",
+                DocumentQueryOperationType.LessThanOrEqual => "$lte",
+                DocumentQueryOperationType.In => "$in",
+                DocumentQueryOperationType.NotIn => "$nin",
+                DocumentQueryOperationType.Exists => "$exists",
+                DocumentQueryOperationType.DataTypeIs => "$type",
+                DocumentQueryOperationType.Modulo => "$mod",
+                DocumentQueryOperationType.MatchesRegex => "$regex",
+                DocumentQueryOperationType.GeoIntersects => "$geoIntersects",
+                DocumentQueryOperationType.GeoWithin => "$geoWithin",
+                DocumentQueryOperationType.GeoNear => "nearSphere",
+                DocumentQueryOperationType.ContainsAllOf => "$all",
+                DocumentQueryOperationType.ElementMatches => "$elemMatch",
+                DocumentQueryOperationType.ArraySizeIs => "$size",
+                DocumentQueryOperationType.And => "$and",
+                DocumentQueryOperationType.Nor => "$nor",
+                DocumentQueryOperationType.Or => "$or",
+                _ => ""
+            };
         }
     }
 
