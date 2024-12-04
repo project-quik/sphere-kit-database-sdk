@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -11,21 +12,21 @@ namespace SphereKit
     public class Database
     {
         public string? Id => _id ?? (CoreServices.DatabaseSettings.DatabaseId ?? null);
-        
+
         private readonly HttpClient _httpClient = new();
         private readonly string? _id;
-        
-        
+
+
         public Database(string? id = null)
         {
             _id = id;
         }
-        
+
         public CollectionReference Collection(string path)
         {
             return new CollectionReference(path, this);
         }
-        
+
         public DocumentReference Document(string path)
         {
             return new DocumentReference(path, this);
@@ -35,36 +36,33 @@ namespace SphereKit
         {
             _httpClient.DefaultRequestHeaders.Remove("Authorization");
             _httpClient.DefaultRequestHeaders.Remove("X-Sphere-Project-Name");
-            
+
             if (CoreServices.AccessToken != null)
-            {
                 _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {CoreServices.AccessToken}");
-            }
             else
-            {
                 _httpClient.DefaultRequestHeaders.Add("X-Sphere-Project-Name", CoreServices.ProjectId);
-            }
         }
 
         private void CheckDatabaseAvailable()
         {
             if (Id == null)
-            {
-                throw new System.Exception("The database is not set up. Please create it in the Sphere Kit dashboard.");
-            }
+                throw new Exception("The database is not set up. Please create it in the Sphere Kit dashboard.");
         }
 
         internal async Task<Collection> GetCollection(CollectionReference reference)
         {
             CoreServices.CheckInitialized();
-            
-            using var requestMessage = new HttpRequestMessage(HttpMethod.Get, $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Get,
+                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
             ConfigureHeaders();
             var collectionResponse = await _httpClient.SendAsync(requestMessage);
             if (collectionResponse.IsSuccessStatusCode)
             {
-                var collectionData = JsonConvert.DeserializeObject<Dictionary<string, Dictionary<string, object>>>(await collectionResponse.Content.ReadAsStringAsync())!;
-                return new Collection(reference, collectionData);
+                var collectionData =
+                    JsonConvert.DeserializeObject<GetDocumentsResponse>(
+                        await collectionResponse.Content.ReadAsStringAsync());
+                return new Collection(reference, collectionData.Documents);
             }
             else
             {
@@ -73,30 +71,100 @@ namespace SphereKit
             }
         }
 
-        internal async Task<Collection> QueryCollection(CollectionReference reference, DocumentQueryOperation[]? query = null)
-        {   
-            var queryRequestData = new Dictionary<string, object>();
+        internal async Task<Collection> QueryCollection(CollectionReference reference,
+            DocumentQueryOperation[]? query = null, string[]? includeFields = null, string[]? excludeFields = null,
+            Dictionary<string, FieldSortDirection>? sort = null, Dictionary<string, object>? startAfter = null,
+            int? limit = null)
+        {
+            CoreServices.CheckInitialized();
+
+            var requestData = new Dictionary<string, object>();
+
             if (query != null)
             {
-                queryRequestData = DocumentQueryOperation.ConvertQueryToRequestData(query);
+                var queryRequestData = DocumentQueryOperation.ConvertQueryToRequestData(query);
+                requestData["query"] = queryRequestData;
                 Debug.Log("Querying collection with query json: " + JsonConvert.SerializeObject(queryRequestData));
             }
-            
-            // TODO: temp
-            return new Collection();
+
+            if (includeFields != null && excludeFields != null)
+                throw new ArgumentException("Cannot include and exclude fields in the same query. Please choose one.");
+
+            if (includeFields != null)
+            {
+                requestData["projection"] = includeFields.ToDictionary(field => field, _ => 1);
+                Debug.Log("Querying collection with projection json: " +
+                          JsonConvert.SerializeObject(requestData["projection"]));
+            }
+
+            if (excludeFields != null)
+            {
+                requestData["projection"] = excludeFields.ToDictionary(field => field, _ => 0);
+                Debug.Log("Querying collection with projection json: " +
+                          JsonConvert.SerializeObject(requestData["projection"]));
+            }
+
+            if (sort != null)
+            {
+                if (startAfter != null)
+                {
+                    if (!startAfter.Keys.SequenceEqual(sort.Keys))
+                        throw new ArgumentException(
+                            "The keys of the startAfter dictionary must match the keys of the sort dictionary.");
+
+                    requestData["startAfter"] = startAfter;
+                }
+
+                requestData["sort"] = sort;
+                Debug.Log("Querying collection with sort json: " + JsonConvert.SerializeObject(requestData["sort"]));
+            }
+            else
+            {
+                if (startAfter != null)
+                    throw new ArgumentException("startAfter can only be used with sort.");
+            }
+
+            if (limit != null)
+            {
+                requestData["limit"] = limit;
+                Debug.Log("Querying collection with limit: " + limit);
+            }
+
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Post,
+                $"{CoreServices.ServerUrl}/databases:query/{Id}/{reference.Path}");
+            ConfigureHeaders();
+            requestMessage.Content = new StringContent(JsonConvert.SerializeObject(requestData));
+            requestMessage.Content.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            var collectionResponse = await _httpClient.SendAsync(requestMessage);
+            if (collectionResponse.IsSuccessStatusCode)
+            {
+                var collectionData =
+                    JsonConvert.DeserializeObject<GetDocumentsResponse>(
+                        await collectionResponse.Content.ReadAsStringAsync());
+                return new Collection(reference, collectionData.Documents);
+            }
+            else
+            {
+                await CoreServices.HandleErrorResponse(collectionResponse);
+                return new Collection();
+            }
         }
-        
+
         internal async Task<Document> GetDocument(DocumentReference reference)
         {
             CoreServices.CheckInitialized();
             CheckDatabaseAvailable();
-            
-            using var requestMessage = new HttpRequestMessage(HttpMethod.Get, $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Get,
+                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
             ConfigureHeaders();
             var documentResponse = await _httpClient.SendAsync(requestMessage);
             if (documentResponse.IsSuccessStatusCode)
             {
-                var documentData = JsonConvert.DeserializeObject<Dictionary<string, object>>(await documentResponse.Content.ReadAsStringAsync())!;
+                var documentData =
+                    JsonConvert.DeserializeObject<Dictionary<string, object>>(await documentResponse.Content
+                        .ReadAsStringAsync())!;
                 return new Document(reference, documentData);
             }
             else
@@ -108,25 +176,24 @@ namespace SphereKit
 
         internal async Task SetDocument(DocumentReference reference, Dictionary<string, object> data)
         {
-            CoreServices.CheckInitialized();    
+            CoreServices.CheckInitialized();
             CheckDatabaseAvailable();
-            
-            using var requestMessage = new HttpRequestMessage(HttpMethod.Post, $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Post,
+                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
             ConfigureHeaders();
             requestMessage.Content = new StringContent(JsonConvert.SerializeObject(data));
-            requestMessage.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            requestMessage.Content.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
             var setDocumentResponse = await _httpClient.SendAsync(requestMessage);
-            if (!setDocumentResponse.IsSuccessStatusCode)
-            {
-                await CoreServices.HandleErrorResponse(setDocumentResponse);
-            }
+            if (!setDocumentResponse.IsSuccessStatusCode) await CoreServices.HandleErrorResponse(setDocumentResponse);
         }
 
         internal async Task UpdateDocument(DocumentReference reference,
             Dictionary<string, DocumentDataOperation> update)
         {
             CoreServices.CheckInitialized();
-            
+
             var updateRequestData = new Dictionary<string, object>();
             foreach (var (fieldKey, value) in update)
             {
@@ -174,12 +241,10 @@ namespace SphereKit
                 }
             }
 
-            if (updateRequestData.Count == 0)
-            {
-                return;
-            }
+            if (updateRequestData.Count == 0) return;
 
-            using var requestMessage = new HttpRequestMessage(HttpMethod.Post, $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Post,
+                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
             ConfigureHeaders();
             requestMessage.Headers.Add("X-Http-Method-Override",
                 "PATCH"); // PATCH method is not supported by UnityWebRequest (as of 6000)
@@ -188,25 +253,23 @@ namespace SphereKit
             Debug.Log("Updating document with update json: " + await requestMessage.Content.ReadAsStringAsync());
             var updateDocumentResponse = await _httpClient.SendAsync(requestMessage);
             if (!updateDocumentResponse.IsSuccessStatusCode)
-            {
                 await CoreServices.HandleErrorResponse(updateDocumentResponse);
-            }
         }
 
         internal async Task DeleteDocument(DocumentReference reference)
         {
             CoreServices.CheckInitialized();
             CheckDatabaseAvailable();
-            
-            using var requestMessage = new HttpRequestMessage(HttpMethod.Delete, $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Delete,
+                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
             ConfigureHeaders();
             requestMessage.Content = new StringContent(JsonConvert.SerializeObject(new Dictionary<string, object>()));
-            requestMessage.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            requestMessage.Content.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
             var deleteDocumentResponse = await _httpClient.SendAsync(requestMessage);
             if (!deleteDocumentResponse.IsSuccessStatusCode)
-            {
                 await CoreServices.HandleErrorResponse(deleteDocumentResponse);
-            }
         }
     }
 }
