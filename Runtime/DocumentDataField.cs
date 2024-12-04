@@ -4,9 +4,10 @@ namespace SphereKit
     public class DocumentDataField
     {
         public readonly string FieldPath;
-        
+        public static string DocumentName = "_name";
+
         private DocumentDataField(DocumentDataField parent, string key)
-        {   
+        {
             FieldPath = $"{parent.FieldPath}.{key}";
         }
 
@@ -19,7 +20,7 @@ namespace SphereKit
         {
             return new DocumentDataField(this, key);
         }
-        
+
         public DocumentDataField ArrayItem(int index)
         {
             return new DocumentDataField(this, index.ToString());

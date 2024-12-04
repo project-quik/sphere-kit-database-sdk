@@ -20,12 +20,34 @@ namespace SphereKit
             return new DocumentReference($"{Path}/{id}", Database);
         }
 
-        public async Task<Collection> Query(DocumentQueryOperation[]? query = null, string[]? includeFields = null,
+        public async Task<Collection> GetDocuments()
+        {
+            return await Database.GetCollection(this);
+        }
+
+        public async Task<Collection> QueryDocuments(DocumentQueryOperation[]? query = null,
+            string[]? includeFields = null,
             string[]? excludeFields = null,
             Dictionary<string, FieldSortDirection>? sort = null, Dictionary<string, object>? startAfter = null,
             int? limit = null)
         {
             return await Database.QueryCollection(this, query, includeFields, excludeFields, sort, startAfter, limit);
+        }
+
+        public async Task SetDocuments(Dictionary<string, Dictionary<string, object>> documents)
+        {
+            await Database.SetDocuments(this, documents);
+        }
+
+        public async Task UpdateDocuments(Dictionary<string, DocumentDataOperation> update,
+            DocumentQueryOperation[]? filter = null)
+        {
+            await Database.UpdateDocuments(this, update, filter);
+        }
+
+        public async Task DeleteDocuments(DocumentQueryOperation[]? filter = null)
+        {
+            await Database.DeleteDocuments(this, filter);
         }
     }
 }

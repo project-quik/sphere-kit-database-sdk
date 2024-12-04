@@ -52,6 +52,7 @@ namespace SphereKit
         internal async Task<Collection> GetCollection(CollectionReference reference)
         {
             CoreServices.CheckInitialized();
+            CheckDatabaseAvailable();
 
             using var requestMessage = new HttpRequestMessage(HttpMethod.Get,
                 $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
@@ -77,6 +78,7 @@ namespace SphereKit
             int? limit = null)
         {
             CoreServices.CheckInitialized();
+            CheckDatabaseAvailable();
 
             var requestData = new Dictionary<string, object>();
 
@@ -84,25 +86,14 @@ namespace SphereKit
             {
                 var queryRequestData = DocumentQueryOperation.ConvertQueryToRequestData(query);
                 requestData["query"] = queryRequestData;
-                Debug.Log("Querying collection with query json: " + JsonConvert.SerializeObject(queryRequestData));
             }
 
             if (includeFields != null && excludeFields != null)
                 throw new ArgumentException("Cannot include and exclude fields in the same query. Please choose one.");
 
-            if (includeFields != null)
-            {
-                requestData["projection"] = includeFields.ToDictionary(field => field, _ => 1);
-                Debug.Log("Querying collection with projection json: " +
-                          JsonConvert.SerializeObject(requestData["projection"]));
-            }
+            if (includeFields != null) requestData["projection"] = includeFields.ToDictionary(field => field, _ => 1);
 
-            if (excludeFields != null)
-            {
-                requestData["projection"] = excludeFields.ToDictionary(field => field, _ => 0);
-                Debug.Log("Querying collection with projection json: " +
-                          JsonConvert.SerializeObject(requestData["projection"]));
-            }
+            if (excludeFields != null) requestData["projection"] = excludeFields.ToDictionary(field => field, _ => 0);
 
             if (sort != null)
             {
@@ -116,7 +107,6 @@ namespace SphereKit
                 }
 
                 requestData["sort"] = sort;
-                Debug.Log("Querying collection with sort json: " + JsonConvert.SerializeObject(requestData["sort"]));
             }
             else
             {
@@ -124,11 +114,7 @@ namespace SphereKit
                     throw new ArgumentException("startAfter can only be used with sort.");
             }
 
-            if (limit != null)
-            {
-                requestData["limit"] = limit;
-                Debug.Log("Querying collection with limit: " + limit);
-            }
+            if (limit != null) requestData["limit"] = limit;
 
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post,
                 $"{CoreServices.ServerUrl}/databases:query/{Id}/{reference.Path}");
@@ -149,6 +135,73 @@ namespace SphereKit
                 await CoreServices.HandleErrorResponse(collectionResponse);
                 return new Collection();
             }
+        }
+
+        internal async Task SetDocuments(CollectionReference reference,
+            Dictionary<string, Dictionary<string, object>> documents)
+        {
+            CoreServices.CheckInitialized();
+            CheckDatabaseAvailable();
+
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Post,
+                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+            ConfigureHeaders();
+            requestMessage.Content = new StringContent(JsonConvert.SerializeObject(documents));
+            requestMessage.Content.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            var setDocumentsResponse = await _httpClient.SendAsync(requestMessage);
+            if (!setDocumentsResponse.IsSuccessStatusCode) await CoreServices.HandleErrorResponse(setDocumentsResponse);
+        }
+
+        internal async Task UpdateDocuments(CollectionReference reference,
+            Dictionary<string, DocumentDataOperation> update, DocumentQueryOperation[]? filter = null)
+        {
+            filter ??= Array.Empty<DocumentQueryOperation>();
+
+            CoreServices.CheckInitialized();
+            CheckDatabaseAvailable();
+
+            var requestData = new Dictionary<string, object>();
+
+            var filterRequestData = DocumentQueryOperation.ConvertQueryToRequestData(filter);
+            requestData["filter"] = filterRequestData;
+
+            var updateRequestData = DocumentDataOperation.ConvertUpdateToRequestData(update);
+            if (updateRequestData.Count == 0) return;
+            requestData["update"] = updateRequestData;
+
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Post,
+                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+            ConfigureHeaders();
+            requestMessage.Headers.Add("X-Http-Method-Override",
+                "PATCH"); // PATCH method is not supported by UnityWebRequest (as of 6000)
+            requestMessage.Content = new StringContent(JsonConvert.SerializeObject(requestData),
+                System.Text.Encoding.UTF8, "application/json");
+            var updateDocumentResponse = await _httpClient.SendAsync(requestMessage);
+            if (!updateDocumentResponse.IsSuccessStatusCode)
+                await CoreServices.HandleErrorResponse(updateDocumentResponse);
+        }
+
+        internal async Task DeleteDocuments(CollectionReference reference, DocumentQueryOperation[]? filter = null)
+        {
+            filter ??= Array.Empty<DocumentQueryOperation>();
+
+            CoreServices.CheckInitialized();
+            CheckDatabaseAvailable();
+
+            var requestData = new Dictionary<string, object>();
+
+            var filterRequestData = DocumentQueryOperation.ConvertQueryToRequestData(filter);
+            requestData["filter"] = filterRequestData;
+
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Delete,
+                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+            ConfigureHeaders();
+            requestMessage.Content = new StringContent(JsonConvert.SerializeObject(requestData),
+                System.Text.Encoding.UTF8, "application/json");
+            var deleteDocumentsResponse = await _httpClient.SendAsync(requestMessage);
+            if (!deleteDocumentsResponse.IsSuccessStatusCode)
+                await CoreServices.HandleErrorResponse(deleteDocumentsResponse);
         }
 
         internal async Task<Document> GetDocument(DocumentReference reference)
@@ -193,54 +246,9 @@ namespace SphereKit
             Dictionary<string, DocumentDataOperation> update)
         {
             CoreServices.CheckInitialized();
+            CheckDatabaseAvailable();
 
-            var updateRequestData = new Dictionary<string, object>();
-            foreach (var (fieldKey, value) in update)
-            {
-                var operationKey = value.OperationType;
-                var operationValue = value.Value;
-                var operationKeyStr = operationKey switch
-                {
-                    DocumentDataOperationType.Set => "$set",
-                    DocumentDataOperationType.SetOnInsert => "$setOnInsert",
-                    DocumentDataOperationType.Inc => "$inc",
-                    DocumentDataOperationType.Dec => "$dec",
-                    DocumentDataOperationType.Min => "$min",
-                    DocumentDataOperationType.Max => "$max",
-                    DocumentDataOperationType.Mul => "$mul",
-                    DocumentDataOperationType.Div => "$div",
-                    DocumentDataOperationType.Rename => "$rename",
-                    DocumentDataOperationType.Unset => "$unset",
-                    DocumentDataOperationType.AddToSet => "$addToSet",
-                    DocumentDataOperationType.Pop => "$pop",
-                    DocumentDataOperationType.Push => "$push",
-                    _ => ""
-                };
-
-                if (operationKey != DocumentDataOperationType.Unset)
-                {
-                    if (!updateRequestData.TryGetValue(operationKeyStr, out var operationData))
-                    {
-                        operationData = new Dictionary<string, object>();
-                        updateRequestData[operationKeyStr] = operationData;
-                    }
-
-                    var operationDataDict = (Dictionary<string, object>)operationData;
-                    operationDataDict[fieldKey] = operationValue!;
-                }
-                else
-                {
-                    if (!updateRequestData.TryGetValue(operationKeyStr, out var operationData))
-                    {
-                        operationData = new List<object>();
-                        updateRequestData[operationKeyStr] = operationData;
-                    }
-
-                    var operationDataList = (List<object>)operationData;
-                    operationDataList.Add(fieldKey);
-                }
-            }
-
+            var updateRequestData = DocumentDataOperation.ConvertUpdateToRequestData(update);
             if (updateRequestData.Count == 0) return;
 
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post,
@@ -250,7 +258,6 @@ namespace SphereKit
                 "PATCH"); // PATCH method is not supported by UnityWebRequest (as of 6000)
             requestMessage.Content = new StringContent(JsonConvert.SerializeObject(updateRequestData),
                 System.Text.Encoding.UTF8, "application/json");
-            Debug.Log("Updating document with update json: " + await requestMessage.Content.ReadAsStringAsync());
             var updateDocumentResponse = await _httpClient.SendAsync(requestMessage);
             if (!updateDocumentResponse.IsSuccessStatusCode)
                 await CoreServices.HandleErrorResponse(updateDocumentResponse);
