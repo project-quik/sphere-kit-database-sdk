@@ -34,6 +34,16 @@ namespace SphereKit
             return await Database.QueryCollection(this, query, includeFields, excludeFields, sort, startAfter, limit);
         }
 
+        public void ListenDocuments(Action<Collection> onData, Action<Exception> onError,
+            Action onClosed, DocumentQueryOperation[]? query = null, string[]? includeFields = null,
+            string[]? excludeFields = null,
+            Dictionary<string, FieldSortDirection>? sort = null, bool autoReconnect = true,
+            bool sendInitialData = false)
+        {
+            _ = Database.ListenDocuments(this, onData, onError, onClosed, query, includeFields, excludeFields, sort,
+                autoReconnect, sendInitialData);
+        }
+
         public async Task SetDocuments(Dictionary<string, Dictionary<string, object>> documents)
         {
             await Database.SetDocuments(this, documents);

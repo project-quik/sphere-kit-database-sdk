@@ -4,7 +4,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
+using NativeWebSocket;
 using Newtonsoft.Json;
+using SphereKit.Utils;
 using UnityEngine;
 
 namespace SphereKit
@@ -41,6 +43,18 @@ namespace SphereKit
                 _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {CoreServices.AccessToken}");
             else
                 _httpClient.DefaultRequestHeaders.Add("X-Sphere-Project-Name", CoreServices.ProjectId);
+        }
+
+        private Dictionary<string, string> GetWebsocketHeaders()
+        {
+            var headers = new Dictionary<string, string>();
+
+            if (CoreServices.AccessToken != null)
+                headers.Add("Authorization", $"Bearer {CoreServices.AccessToken}");
+            else
+                headers.Add("X-Sphere-Project-Name", CoreServices.ProjectId);
+
+            return headers;
         }
 
         private void CheckDatabaseAvailable()
@@ -135,6 +149,107 @@ namespace SphereKit
                 await CoreServices.HandleErrorResponse(collectionResponse);
                 return new Collection();
             }
+        }
+
+        internal async Task ListenDocuments(CollectionReference reference, Action<Collection> onData,
+            Action<Exception> onError,
+            Action onClosed, DocumentQueryOperation[]? query = null, string[]? includeFields = null,
+            string[]? excludeFields = null,
+            Dictionary<string, FieldSortDirection>? sort = null, bool autoReconnect = true,
+            bool sendInitialData = false)
+        {
+            var url = UrlBuilder.New((CoreServices.ServerUrl.StartsWith("http://") ? "ws" : "wss") + ":" +
+                                     string.Join(":", CoreServices.ServerUrl.Split(":").Skip(1)) +
+                                     $"/databases:listen/{Id}/{reference.Path}");
+            var urlQuery = new Dictionary<string, string>
+            {
+                { "initialFullResult", sendInitialData ? "true" : "false" }
+            };
+            if (query != null) urlQuery["willQuery"] = "true";
+            url.SetQueryParameters(urlQuery);
+            Debug.Log("Websocket URL: " + url);
+            var websocket = new WebSocket(url.ToString(), GetWebsocketHeaders());
+
+            var connectionAttempts = 0;
+
+            websocket.OnOpen += () =>
+            {
+                Debug.Log("Websocket connection opened.");
+
+                var requestData = new Dictionary<string, object>();
+
+                if (query != null)
+                {
+                    var queryRequestData = DocumentQueryOperation.ConvertQueryToRequestData(query);
+                    requestData["query"] = queryRequestData;
+                }
+
+                if (includeFields != null && excludeFields != null)
+                    throw new ArgumentException(
+                        "Cannot include and exclude fields in the same query. Please choose one.");
+
+                if (includeFields != null)
+                    requestData["projection"] = includeFields.ToDictionary(field => field, _ => 1);
+
+                if (excludeFields != null)
+                    requestData["projection"] = excludeFields.ToDictionary(field => field, _ => 0);
+
+                if (sort != null) requestData["sort"] = sort;
+
+                if (requestData.Count > 0)
+                {
+                    Debug.Log("Sending query data...");
+                    websocket.SendText(JsonConvert.SerializeObject(requestData));
+                }
+            };
+
+            websocket.OnMessage += data =>
+            {
+                // Convert the message bytes to string
+                var message = System.Text.Encoding.UTF8.GetString(data);
+
+                Debug.Log("Received message: " + message);
+            };
+
+            websocket.OnError += e =>
+            {
+                try
+                {
+                    CoreServices.HandleErrorString(e);
+                }
+                catch (Exception ex)
+                {
+                    onError(ex);
+                }
+            };
+
+            websocket.OnClose += e =>
+            {
+                if (e == WebSocketCloseCode.Abnormal && autoReconnect)
+                {
+                    Debug.Log("Websocket connection closed abnormally. Reconnecting...");
+                    Task.Delay(TimeSpan.FromSeconds(Math.Min(20, Math.Pow(2, connectionAttempts)))).ContinueWith(
+                        async _ =>
+                        {
+                            connectionAttempts++;
+                            await websocket.Connect();
+                        });
+                }
+
+                onClosed();
+            };
+
+            // Check for new messages
+            var timer = new System.Timers.Timer(16);
+            timer.Elapsed += (_, _) =>
+            {
+#if !UNITY_WEBGL || UNITY_EDITOR
+                websocket.DispatchMessageQueue();
+#endif
+            };
+            timer.Enabled = true;
+
+            await websocket.Connect();
         }
 
         internal async Task SetDocuments(CollectionReference reference,

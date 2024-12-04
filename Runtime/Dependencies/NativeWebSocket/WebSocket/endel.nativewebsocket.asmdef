@@ -1,10 +1,8 @@
 {
-    "name": "projectquik.spherekit.database",
+    "name": "endel.nativewebsocket",
     "rootNamespace": "",
     "references": [
-        "GUID:d6d67d27a1e9eb0448430f4676f108e5",
-        "GUID:73cef9accc0fb4245ab44deb7292f299",
-        "GUID:04376767bc1f3b428aefa3d20743e819"
+        "GUID:d6d67d27a1e9eb0448430f4676f108e5"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
