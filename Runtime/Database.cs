@@ -3,11 +3,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using NativeWebSocket;
 using Newtonsoft.Json;
 using SphereKit.Utils;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace SphereKit
 {
@@ -45,14 +47,12 @@ namespace SphereKit
                 _httpClient.DefaultRequestHeaders.Add("X-Sphere-Project-Name", CoreServices.ProjectId);
         }
 
-        private Dictionary<string, string> GetWebsocketHeaders()
+        private static Dictionary<string, string> GetWebsocketHeaders()
         {
             var headers = new Dictionary<string, string>();
 
             if (CoreServices.AccessToken != null)
                 headers.Add("Authorization", $"Bearer {CoreServices.AccessToken}");
-            else
-                headers.Add("X-Sphere-Project-Name", CoreServices.ProjectId);
 
             return headers;
         }
@@ -151,7 +151,7 @@ namespace SphereKit
             }
         }
 
-        internal async Task ListenDocuments(CollectionReference reference, Action<Collection> onData,
+        internal async Task ListenDocuments(CollectionReference reference, Action<MultiDocumentChange> onData,
             Action<Exception> onError,
             Action onClosed, DocumentQueryOperation[]? query = null, string[]? includeFields = null,
             string[]? excludeFields = null,
@@ -165,16 +165,19 @@ namespace SphereKit
             {
                 { "initialFullResult", sendInitialData ? "true" : "false" }
             };
+            if (CoreServices.AccessToken == null) urlQuery["projectName"] = CoreServices.ProjectId;
             if (query != null) urlQuery["willQuery"] = "true";
             url.SetQueryParameters(urlQuery);
-            Debug.Log("Websocket URL: " + url);
             var websocket = new WebSocket(url.ToString(), GetWebsocketHeaders());
 
             var connectionAttempts = 0;
+            var firstOpened = false;
+            var timer = new System.Timers.Timer(16);
 
             websocket.OnOpen += () =>
             {
                 Debug.Log("Websocket connection opened.");
+                firstOpened = true;
 
                 var requestData = new Dictionary<string, object>();
 
@@ -208,13 +211,39 @@ namespace SphereKit
                 // Convert the message bytes to string
                 var message = System.Text.Encoding.UTF8.GetString(data);
 
-                Debug.Log("Received message: " + message);
+                // Throw error if needed
+                var changeDict = JsonConvert.DeserializeObject<Dictionary<string, object>>(message)!;
+                if (changeDict.ContainsKey("error"))
+                {
+                    try
+                    {
+                        CoreServices.HandleErrorString(message);
+                    }
+                    catch (Exception ex)
+                    {
+                        onError(ex);
+                    }
+
+                    return;
+                }
+
+                // Parse the change data
+                var change = JsonConvert.DeserializeObject<MultiDocumentChange>(message)!;
+                change.GenerateDocuments(reference);
+                onData(change);
             };
 
             websocket.OnError += e =>
             {
                 try
                 {
+                    if (e == "Unable to connect to the remote server")
+                    {
+                        if (firstOpened) return;
+
+                        throw new Exception("Unable to connect to the document listener.");
+                    }
+
                     CoreServices.HandleErrorString(e);
                 }
                 catch (Exception ex)
@@ -225,7 +254,7 @@ namespace SphereKit
 
             websocket.OnClose += e =>
             {
-                if (e == WebSocketCloseCode.Abnormal && autoReconnect)
+                if (e == WebSocketCloseCode.Abnormal && autoReconnect && firstOpened)
                 {
                     Debug.Log("Websocket connection closed abnormally. Reconnecting...");
                     Task.Delay(TimeSpan.FromSeconds(Math.Min(20, Math.Pow(2, connectionAttempts)))).ContinueWith(
@@ -234,13 +263,14 @@ namespace SphereKit
                             connectionAttempts++;
                             await websocket.Connect();
                         });
+                    return;
                 }
 
+                timer.Dispose();
                 onClosed();
             };
 
             // Check for new messages
-            var timer = new System.Timers.Timer(16);
             timer.Elapsed += (_, _) =>
             {
 #if !UNITY_WEBGL || UNITY_EDITOR

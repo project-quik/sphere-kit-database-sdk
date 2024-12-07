@@ -34,7 +34,7 @@ namespace SphereKit
             return await Database.QueryCollection(this, query, includeFields, excludeFields, sort, startAfter, limit);
         }
 
-        public void ListenDocuments(Action<Collection> onData, Action<Exception> onError,
+        public void ListenDocuments(Action<MultiDocumentChange> onData, Action<Exception> onError,
             Action onClosed, DocumentQueryOperation[]? query = null, string[]? includeFields = null,
             string[]? excludeFields = null,
             Dictionary<string, FieldSortDirection>? sort = null, bool autoReconnect = true,
