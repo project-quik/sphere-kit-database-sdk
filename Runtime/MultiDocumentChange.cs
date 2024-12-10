@@ -10,7 +10,7 @@ namespace SphereKit
     [DataContract]
     public class MultiDocumentChange
     {
-        public DocumentChangeType Type { get; private set; }
+        public MultiDocumentChangeType Type { get; private set; }
         public Document[] Documents { get; private set; } = Array.Empty<Document>();
 
         [Preserve] [DataMember(IsRequired = false, Name = "change")]
@@ -25,16 +25,16 @@ namespace SphereKit
                 switch (value)
                 {
                     case "initial":
-                        Type = DocumentChangeType.Initial;
+                        Type = MultiDocumentChangeType.Initial;
                         break;
                     case "update":
-                        Type = DocumentChangeType.Update;
+                        Type = MultiDocumentChangeType.Update;
                         break;
                     case "delete":
-                        Type = DocumentChangeType.Delete;
+                        Type = MultiDocumentChangeType.Delete;
                         break;
                     default:
-                        throw new Exception("Invalid operation type: " + value);
+                        throw new Exception("Invalid change operation type received: " + value);
                 }
             }
         }
@@ -64,21 +64,10 @@ namespace SphereKit
         }
     }
 
-    public enum DocumentChangeType
+    public enum MultiDocumentChangeType
     {
         Initial,
         Update,
         Delete
-    }
-
-    [Preserve]
-    [DataContract]
-    public class DocumentChangeDescription
-    {
-        [Preserve] [DataMember(IsRequired = true, Name = "updatedFields")]
-        public readonly Dictionary<string, object> UpdatedFields = new();
-
-        [Preserve] [DataMember(IsRequired = true, Name = "removedFields")]
-        public readonly string[] DeletedFields = Array.Empty<string>();
     }
 }

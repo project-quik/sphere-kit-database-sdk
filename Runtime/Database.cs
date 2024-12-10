@@ -201,7 +201,7 @@ namespace SphereKit
 
                 if (requestData.Count > 0)
                 {
-                    Debug.Log("Sending query data...");
+                    Debug.Log("Sending query data... " + JsonConvert.SerializeObject(requestData));
                     websocket.SendText(JsonConvert.SerializeObject(requestData));
                 }
             };
@@ -370,6 +370,109 @@ namespace SphereKit
                 await CoreServices.HandleErrorResponse(documentResponse);
                 return new Document();
             }
+        }
+
+        internal async Task ListenDocument(DocumentReference reference, Action<SingleDocumentChange> onData,
+            Action<Exception> onError,
+            Action onClosed,
+            bool autoReconnect = true,
+            bool sendInitialData = false)
+        {
+            var url = UrlBuilder.New((CoreServices.ServerUrl.StartsWith("http://") ? "ws" : "wss") + ":" +
+                                     string.Join(":", CoreServices.ServerUrl.Split(":").Skip(1)) +
+                                     $"/databases:listen/{Id}/{reference.Path}");
+            var urlQuery = new Dictionary<string, string>
+            {
+                { "initialFullResult", sendInitialData ? "true" : "false" }
+            };
+            if (CoreServices.AccessToken == null) urlQuery["projectName"] = CoreServices.ProjectId;
+            url.SetQueryParameters(urlQuery);
+            var websocket = new WebSocket(url.ToString(), GetWebsocketHeaders());
+
+            var connectionAttempts = 0;
+            var firstOpened = false;
+            var timer = new System.Timers.Timer(16);
+
+            websocket.OnOpen += () =>
+            {
+                Debug.Log("Websocket connection opened.");
+                firstOpened = true;
+            };
+
+            websocket.OnMessage += data =>
+            {
+                // Convert the message bytes to string
+                var message = System.Text.Encoding.UTF8.GetString(data);
+
+                // Throw error if needed
+                var changeDict = JsonConvert.DeserializeObject<Dictionary<string, object>>(message)!;
+                if (changeDict.ContainsKey("error"))
+                {
+                    try
+                    {
+                        CoreServices.HandleErrorString(message);
+                    }
+                    catch (Exception ex)
+                    {
+                        onError(ex);
+                    }
+
+                    return;
+                }
+
+                // Parse the change data
+                var change = JsonConvert.DeserializeObject<SingleDocumentChange>(message)!;
+                change.GenerateDocument(reference);
+                onData(change);
+            };
+
+            websocket.OnError += e =>
+            {
+                try
+                {
+                    if (e == "Unable to connect to the remote server")
+                    {
+                        if (firstOpened) return;
+
+                        throw new Exception("Unable to connect to the document listener.");
+                    }
+
+                    CoreServices.HandleErrorString(e);
+                }
+                catch (Exception ex)
+                {
+                    onError(ex);
+                }
+            };
+
+            websocket.OnClose += e =>
+            {
+                if (e == WebSocketCloseCode.Abnormal && autoReconnect && firstOpened)
+                {
+                    Debug.Log("Websocket connection closed abnormally. Reconnecting...");
+                    Task.Delay(TimeSpan.FromSeconds(Math.Min(20, Math.Pow(2, connectionAttempts)))).ContinueWith(
+                        async _ =>
+                        {
+                            connectionAttempts++;
+                            await websocket.Connect();
+                        });
+                    return;
+                }
+
+                timer.Dispose();
+                onClosed();
+            };
+
+            // Check for new messages
+            timer.Elapsed += (_, _) =>
+            {
+#if !UNITY_WEBGL || UNITY_EDITOR
+                websocket.DispatchMessageQueue();
+#endif
+            };
+            timer.Enabled = true;
+
+            await websocket.Connect();
         }
 
         internal async Task SetDocument(DocumentReference reference, Dictionary<string, object> data)
