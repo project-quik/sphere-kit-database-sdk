@@ -285,6 +285,14 @@ namespace SphereKit
         internal async Task SetDocuments(CollectionReference reference,
             Dictionary<string, Dictionary<string, object>> documents)
         {
+            switch (documents.Count)
+            {
+                case 0:
+                    return;
+                case > 50:
+                    throw new ArgumentException("The maximum number of documents that can be set at once is 50.");
+            }
+
             CoreServices.CheckInitialized();
             CheckDatabaseAvailable();
 

@@ -66,6 +66,8 @@ namespace SphereKit
         public static DocumentDataOperation Div(object value)
         {
             CheckNumberValue(value);
+            if ((int)value == 0)
+                throw new ArgumentException("Cannot divide by zero.");
 
             return new DocumentDataOperation(DocumentDataOperationType.Div, value);
         }
