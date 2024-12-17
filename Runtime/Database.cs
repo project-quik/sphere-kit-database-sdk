@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,20 +11,18 @@ using Newtonsoft.Json;
 using SphereKit.Utils;
 using UnityEngine;
 using Object = UnityEngine.Object;
+using WebSocketException = System.Net.WebSockets.WebSocketException;
 
 namespace SphereKit
 {
     public class Database
     {
-        public string? Id => _id ?? (CoreServices.DatabaseSettings.DatabaseId ?? null);
-
         private readonly HttpClient _httpClient = new();
         private readonly string? _id;
 
-
         public Database(string? id = null)
         {
-            _id = id;
+            _id = id ?? CoreServices.DatabaseSettings.DatabaseId;
         }
 
         public CollectionReference Collection(string path)
@@ -36,6 +35,9 @@ namespace SphereKit
             return new DocumentReference(path, this);
         }
 
+        /// <summary>
+        /// Adds the Authorization header with the access token if the user is authenticated, else specifies the project name for unauthenticated access.
+        /// </summary>
         private void ConfigureHeaders()
         {
             _httpClient.DefaultRequestHeaders.Remove("Authorization");
@@ -47,6 +49,11 @@ namespace SphereKit
                 _httpClient.DefaultRequestHeaders.Add("X-Sphere-Project-Name", CoreServices.ProjectId);
         }
 
+        /// <summary>
+        /// Adds the Authorization header with the access token if the user is authenticated.
+        /// Returns a dictionary instead of setting <see cref="_httpClient"/> directly.
+        /// </summary>
+        /// <returns>Dictionary with the required headers.</returns>
         private static Dictionary<string, string> GetWebsocketHeaders()
         {
             var headers = new Dictionary<string, string>();
@@ -57,19 +64,29 @@ namespace SphereKit
             return headers;
         }
 
+        /// <summary>
+        /// Checks if the database ID is set.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">The database has not been set up.</exception>
         private void CheckDatabaseAvailable()
         {
-            if (Id == null)
-                throw new Exception("The database is not set up. Please create it in the Sphere Kit dashboard.");
+            if (_id == null)
+                throw new InvalidOperationException(
+                    "The database is not set up. Please create it in the Sphere Kit dashboard.");
         }
 
-        internal async Task<Collection> GetCollection(CollectionReference reference)
+        /// <summary>
+        /// Gets a collection of documents.
+        /// </summary>
+        /// <param name="reference">The collection to get documents from.</param>
+        /// <returns>The collection with an array of documents.</returns>
+        internal async Task<Collection> GetDocuments(CollectionReference reference)
         {
             CoreServices.CheckInitialized();
             CheckDatabaseAvailable();
 
             using var requestMessage = new HttpRequestMessage(HttpMethod.Get,
-                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+                $"{CoreServices.ServerUrl}/databases/{_id}/{reference.Path}");
             ConfigureHeaders();
             var collectionResponse = await _httpClient.SendAsync(requestMessage);
             if (collectionResponse.IsSuccessStatusCode)
@@ -86,7 +103,21 @@ namespace SphereKit
             }
         }
 
-        internal async Task<Collection> QueryCollection(CollectionReference reference,
+        /// <summary>
+        /// Finds/projects/sorts documents in a collection.<br></br>
+        /// Only either <see cref="includeFields"/> or <see cref="excludeFields"/> can be specified at a time.<br></br>
+        /// <see cref="sort"/> must be provided and matching the fields of <see cref="startAfter"/> if <see cref="startAfter"/> is provided.
+        /// </summary>
+        /// <param name="reference">The collection to get documents from.</param>
+        /// <param name="query">The queries to filter documents by.</param>
+        /// <param name="includeFields">The fields to be retrieved in each document retrieved.</param>
+        /// <param name="excludeFields">The fields to be excluded in each document retrieved.</param>
+        /// <param name="sort">The sort specification for the documents.</param>
+        /// <param name="startAfter">The field values to start after for sorted fields. Allows for pagination.</param>
+        /// <param name="limit">The maximum number of documents to retrieve at a time.</param>
+        /// <returns>The collection with the array of filtered documents.</returns>
+        /// <exception cref="ArgumentException">Invalid parameter values.</exception>
+        internal async Task<Collection> QueryDocuments(CollectionReference reference,
             DocumentQueryOperation[]? query = null, string[]? includeFields = null, string[]? excludeFields = null,
             Dictionary<string, FieldSortDirection>? sort = null, Dictionary<string, object>? startAfter = null,
             int? limit = null)
@@ -131,7 +162,7 @@ namespace SphereKit
             if (limit != null) requestData["limit"] = limit;
 
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post,
-                $"{CoreServices.ServerUrl}/databases:query/{Id}/{reference.Path}");
+                $"{CoreServices.ServerUrl}/databases:query/{_id}/{reference.Path}");
             ConfigureHeaders();
             requestMessage.Content = new StringContent(JsonConvert.SerializeObject(requestData));
             requestMessage.Content.Headers.ContentType =
@@ -151,6 +182,23 @@ namespace SphereKit
             }
         }
 
+        /// <summary>
+        /// Listens to changes in documents of a collection.<br></br>
+        /// Changes notified are document update, inserts and deletes.<br></br>
+        /// Only either <see cref="includeFields"/> or <see cref="excludeFields"/> can be specified at a time.
+        /// </summary>
+        /// <param name="reference">The collection to listen to documents.</param>
+        /// <param name="onData">The callback when an update is received.</param>
+        /// <param name="onError">The callback when an error is received.</param>
+        /// <param name="onClosed">The callback when the connection is closed and will not be restored.</param>
+        /// <param name="query">The queries to filter documents by.</param>
+        /// <param name="includeFields">The fields to be retrieved in each document received.</param>
+        /// <param name="excludeFields">The fields to be excluded in each document received.</param>
+        /// <param name="sort">The sort specification for the documents (for initial data).</param>
+        /// <param name="autoReconnect">Whether to automatically reconnect to the server when the internet connection drops.</param>
+        /// <param name="sendInitialData">Whether to send all matching documents when the listener is first set up.</param>
+        /// <exception cref="ArgumentException">Cannot include and exclude fields in the same query.</exception>
+        /// <exception cref="WebSocketException">Could not connect to the document listener.</exception>
         internal async Task ListenDocuments(CollectionReference reference, Action<MultiDocumentChange> onData,
             Action<Exception> onError,
             Action onClosed, DocumentQueryOperation[]? query = null, string[]? includeFields = null,
@@ -160,13 +208,14 @@ namespace SphereKit
         {
             var url = UrlBuilder.New((CoreServices.ServerUrl.StartsWith("http://") ? "ws" : "wss") + ":" +
                                      string.Join(":", CoreServices.ServerUrl.Split(":").Skip(1)) +
-                                     $"/databases:listen/{Id}/{reference.Path}");
+                                     $"/databases:listen/{_id}/{reference.Path}");
             var urlQuery = new Dictionary<string, string>
             {
                 { "initialFullResult", sendInitialData ? "true" : "false" }
             };
             if (CoreServices.AccessToken == null) urlQuery["projectName"] = CoreServices.ProjectId;
-            if (query != null) urlQuery["willQuery"] = "true";
+            if (query != null || includeFields != null || excludeFields != null || sort != null)
+                urlQuery["willQuery"] = "true";
             url.SetQueryParameters(urlQuery);
             var websocket = new WebSocket(url.ToString(), GetWebsocketHeaders());
 
@@ -241,7 +290,7 @@ namespace SphereKit
                     {
                         if (firstOpened) return;
 
-                        throw new Exception("Unable to connect to the document listener.");
+                        throw new WebSocketException("Unable to connect to the document listener.");
                     }
 
                     CoreServices.HandleErrorString(e);
@@ -282,6 +331,13 @@ namespace SphereKit
             await websocket.Connect();
         }
 
+        /// <summary>
+        /// Adds or replaces multiple documents to a collection.<br></br>
+        /// A maximum of 50 documents can be set at once.
+        /// </summary>
+        /// <param name="reference">The collection to set documents in.</param>
+        /// <param name="documents">The documents to be set, with ID as key and data as value.</param>
+        /// <exception cref="ArgumentException">Exceeded the 50 documents at once limit.</exception>
         internal async Task SetDocuments(CollectionReference reference,
             Dictionary<string, Dictionary<string, object>> documents)
         {
@@ -297,7 +353,7 @@ namespace SphereKit
             CheckDatabaseAvailable();
 
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post,
-                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+                $"{CoreServices.ServerUrl}/databases/{_id}/{reference.Path}");
             ConfigureHeaders();
             requestMessage.Content = new StringContent(JsonConvert.SerializeObject(documents));
             requestMessage.Content.Headers.ContentType =
@@ -306,6 +362,12 @@ namespace SphereKit
             if (!setDocumentsResponse.IsSuccessStatusCode) await CoreServices.HandleErrorResponse(setDocumentsResponse);
         }
 
+        /// <summary>
+        /// Updates matching documents in a collection.
+        /// </summary>
+        /// <param name="reference">The collection to update documents in.</param>
+        /// <param name="update">The update specification, with field name as key and operation as value.</param>
+        /// <param name="filter">The filters to find matching documents to update.</param>
         internal async Task UpdateDocuments(CollectionReference reference,
             Dictionary<string, DocumentDataOperation> update, DocumentQueryOperation[]? filter = null)
         {
@@ -324,7 +386,7 @@ namespace SphereKit
             requestData["update"] = updateRequestData;
 
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post,
-                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+                $"{CoreServices.ServerUrl}/databases/{_id}/{reference.Path}");
             ConfigureHeaders();
             requestMessage.Headers.Add("X-Http-Method-Override",
                 "PATCH"); // PATCH method is not supported by UnityWebRequest (as of 6000)
@@ -335,6 +397,11 @@ namespace SphereKit
                 await CoreServices.HandleErrorResponse(updateDocumentResponse);
         }
 
+        /// <summary>
+        /// Deletes matching documents from a collection.
+        /// </summary>
+        /// <param name="reference">The collection to delete documents from.</param>
+        /// <param name="filter">The filters to find matching documents to delete.</param>
         internal async Task DeleteDocuments(CollectionReference reference, DocumentQueryOperation[]? filter = null)
         {
             filter ??= Array.Empty<DocumentQueryOperation>();
@@ -348,7 +415,7 @@ namespace SphereKit
             requestData["filter"] = filterRequestData;
 
             using var requestMessage = new HttpRequestMessage(HttpMethod.Delete,
-                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+                $"{CoreServices.ServerUrl}/databases/{_id}/{reference.Path}");
             ConfigureHeaders();
             requestMessage.Content = new StringContent(JsonConvert.SerializeObject(requestData),
                 System.Text.Encoding.UTF8, "application/json");
@@ -357,13 +424,18 @@ namespace SphereKit
                 await CoreServices.HandleErrorResponse(deleteDocumentsResponse);
         }
 
+        /// <summary>
+        /// Retrieves a single document in a collection.
+        /// </summary>
+        /// <param name="reference">The reference to the document to retrieve.</param>
+        /// <returns>The retrieved document.</returns>
         internal async Task<Document> GetDocument(DocumentReference reference)
         {
             CoreServices.CheckInitialized();
             CheckDatabaseAvailable();
 
             using var requestMessage = new HttpRequestMessage(HttpMethod.Get,
-                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+                $"{CoreServices.ServerUrl}/databases/{_id}/{reference.Path}");
             ConfigureHeaders();
             var documentResponse = await _httpClient.SendAsync(requestMessage);
             if (documentResponse.IsSuccessStatusCode)
@@ -380,6 +452,17 @@ namespace SphereKit
             }
         }
 
+        /// <summary>
+        /// Listens to changes to a single document.<br></br>
+        /// Changes notified are only document update and inserts <b>(no delete)</b>.
+        /// </summary>
+        /// <param name="reference">The reference to the document to listen to.</param>
+        /// <param name="onData">The callback when an update is received</param>
+        /// <param name="onError">The callback when an error is received.</param>
+        /// <param name="onClosed">The callback when the connection is closed and will not be restored.</param>
+        /// <param name="autoReconnect">Whether to automatically reconnect to the server when the internet connection drops.</param>
+        /// <param name="sendInitialData">Whether to send the document in its current state (if it exists) when the listener is first set up.</param>
+        /// <exception cref="WebSocketException">Could not connect to the document listener.</exception>
         internal async Task ListenDocument(DocumentReference reference, Action<SingleDocumentChange> onData,
             Action<Exception> onError,
             Action onClosed,
@@ -388,7 +471,7 @@ namespace SphereKit
         {
             var url = UrlBuilder.New((CoreServices.ServerUrl.StartsWith("http://") ? "ws" : "wss") + ":" +
                                      string.Join(":", CoreServices.ServerUrl.Split(":").Skip(1)) +
-                                     $"/databases:listen/{Id}/{reference.Path}");
+                                     $"/databases:listen/{_id}/{reference.Path}");
             var urlQuery = new Dictionary<string, string>
             {
                 { "initialFullResult", sendInitialData ? "true" : "false" }
@@ -442,7 +525,7 @@ namespace SphereKit
                     {
                         if (firstOpened) return;
 
-                        throw new Exception("Unable to connect to the document listener.");
+                        throw new WebSocketException("Unable to connect to the document listener.");
                     }
 
                     CoreServices.HandleErrorString(e);
@@ -483,13 +566,18 @@ namespace SphereKit
             await websocket.Connect();
         }
 
+        /// <summary>
+        /// Adds or replaces a single document.
+        /// </summary>
+        /// <param name="reference">The reference to the document to set.</param>
+        /// <param name="data">The document data.</param>
         internal async Task SetDocument(DocumentReference reference, Dictionary<string, object> data)
         {
             CoreServices.CheckInitialized();
             CheckDatabaseAvailable();
 
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post,
-                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+                $"{CoreServices.ServerUrl}/databases/{_id}/{reference.Path}");
             ConfigureHeaders();
             requestMessage.Content = new StringContent(JsonConvert.SerializeObject(data));
             requestMessage.Content.Headers.ContentType =
@@ -498,6 +586,11 @@ namespace SphereKit
             if (!setDocumentResponse.IsSuccessStatusCode) await CoreServices.HandleErrorResponse(setDocumentResponse);
         }
 
+        /// <summary>
+        /// Updates a single document.
+        /// </summary>
+        /// <param name="reference">The reference to the document to update.</param>
+        /// <param name="update">The update specification, with field name as key and operation as value.</param>
         internal async Task UpdateDocument(DocumentReference reference,
             Dictionary<string, DocumentDataOperation> update)
         {
@@ -508,7 +601,7 @@ namespace SphereKit
             if (updateRequestData.Count == 0) return;
 
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post,
-                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+                $"{CoreServices.ServerUrl}/databases/{_id}/{reference.Path}");
             ConfigureHeaders();
             requestMessage.Headers.Add("X-Http-Method-Override",
                 "PATCH"); // PATCH method is not supported by UnityWebRequest (as of 6000)
@@ -519,13 +612,17 @@ namespace SphereKit
                 await CoreServices.HandleErrorResponse(updateDocumentResponse);
         }
 
+        /// <summary>
+        /// Deletes a single document.
+        /// </summary>
+        /// <param name="reference">The reference to the document to delete.</param>
         internal async Task DeleteDocument(DocumentReference reference)
         {
             CoreServices.CheckInitialized();
             CheckDatabaseAvailable();
 
             using var requestMessage = new HttpRequestMessage(HttpMethod.Delete,
-                $"{CoreServices.ServerUrl}/databases/{Id}/{reference.Path}");
+                $"{CoreServices.ServerUrl}/databases/{_id}/{reference.Path}");
             ConfigureHeaders();
             requestMessage.Content = new StringContent(JsonConvert.SerializeObject(new Dictionary<string, object>()));
             requestMessage.Content.Headers.ContentType =

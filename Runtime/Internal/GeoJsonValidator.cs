@@ -3,13 +3,17 @@ using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Schema;
+
 #pragma warning disable CS0618 // Type or member is obsolete
 
+#nullable enable
 namespace SphereKit
 {
     public class GeoJsonValidationException : Exception
     {
-        public GeoJsonValidationException(string message) : base(message) { }
+        public GeoJsonValidationException(string message) : base(message)
+        {
+        }
     }
 
     public class GeoJsonValidator
@@ -34,7 +38,7 @@ namespace SphereKit
             ""required"": [""type"", ""coordinates""],
             ""additionalProperties"": false
         }}";
-        
+
         private static readonly string _multiPoint = $@"{{
             ""type"": ""object"",
             ""properties"": {{
@@ -51,7 +55,7 @@ namespace SphereKit
             ""required"": [""type"", ""coordinates""],
             ""additionalProperties"": false
         }}";
-        
+
         private static readonly string _lineString = $@"{{
             ""type"": ""object"",
             ""properties"": {{
@@ -68,7 +72,7 @@ namespace SphereKit
             ""required"": [""type"", ""coordinates""],
             ""additionalProperties"": false
         }}";
-        
+
         private static readonly string _multiLineString = $@"{{
             ""type"": ""object"",
             ""properties"": {{
@@ -88,7 +92,7 @@ namespace SphereKit
             ""required"": [""type"", ""coordinates""],
             ""additionalProperties"": false
         }}";
-        
+
         private static readonly string _polygon = $@"{{
             ""type"": ""object"",
             ""properties"": {{
@@ -108,7 +112,7 @@ namespace SphereKit
             ""required"": [""type"", ""coordinates""],
             ""additionalProperties"": false
         }}";
-        
+
         private static readonly string _multiPolygon = $@"{{
             ""type"": ""object"",
             ""properties"": {{
@@ -131,7 +135,7 @@ namespace SphereKit
             ""required"": [""type"", ""coordinates""],
             ""additionalProperties"": false
         }}";
-        
+
         private static readonly string _geometryCollection = $@"{{
             ""type"": ""object"",
             ""properties"": {{
@@ -157,46 +161,42 @@ namespace SphereKit
             ""required"": [""type"", ""geometries""],
             ""additionalProperties"": false
         }}";
-        
-        public static void Validate(object value)
+
+
+        private static readonly Dictionary<string, JsonSchema> _allGeojsonTypes = new()
+        {
+            { "Point", JsonSchema.Parse(_point) },
+            { "MultiPoint", JsonSchema.Parse(_multiPoint) },
+            { "LineString", JsonSchema.Parse(_lineString) },
+            { "MultiLineString", JsonSchema.Parse(_multiLineString) },
+            { "Polygon", JsonSchema.Parse(_polygon) },
+            { "MultiPolygon", JsonSchema.Parse(_multiPolygon) },
+            { "GeometryCollection", JsonSchema.Parse(_geometryCollection) }
+        };
+
+        public static void Validate(object value, string[]? supportedTypes = null)
         {
             if (value is not Dictionary<string, object> geojsonDict)
-            {
                 throw new GeoJsonValidationException("Invalid GeoJSON object.");
-            }
-            
+
             var testGeojson = JObject.FromObject(geojsonDict);
-            
+
             if (!testGeojson.TryGetValue("type", out var typeToken))
-            {
                 throw new GeoJsonValidationException("GeoJSON object must have a 'type' property.");
-            }
-            
-            var geojsonTypes = new Dictionary<string, JsonSchema>
-            {
-                { "Point", JsonSchema.Parse(_point) },
-                { "MultiPoint", JsonSchema.Parse(_multiPoint) },
-                { "LineString", JsonSchema.Parse(_lineString) },
-                { "MultiLineString", JsonSchema.Parse(_multiLineString) },
-                { "Polygon", JsonSchema.Parse(_polygon) },
-                { "MultiPolygon", JsonSchema.Parse(_multiPolygon) },
-                { "GeometryCollection", JsonSchema.Parse(_geometryCollection) }
-            };
-            
+
+            var geojsonTypes = _allGeojsonTypes;
+            if (supportedTypes != null)
+                geojsonTypes = supportedTypes.ToDictionary(type => type, type => geojsonTypes[type]);
+
             var type = typeToken.ToString();
             if (!geojsonTypes.ContainsKey(type))
-            {
-                throw new GeoJsonValidationException($"\"{type}\" is not a valid GeoJSON type.");
-            }
+                throw new GeoJsonValidationException($"\"{type}\" is not a valid GeoJSON type for this operation.");
 
             var isValid = false;
-            
+
             if (type == "GeometryCollection")
-            {
                 ValidateSpecialCase(testGeojson);
-            }
             else
-            {
                 try
                 {
                     // Validate the GeoJSON object using newtonsoft.json
@@ -207,37 +207,26 @@ namespace SphereKit
                 {
                     throw new GeoJsonValidationException("Invalid GeoJSON object: " + ex.Message);
                 }
-            }
-            
-            if (!isValid)
-            {
-                throw new GeoJsonValidationException("Invalid GeoJSON object.");
-            }
 
-            if (type == "Polygon")
-            {
-                ValidatePolygonCoordinates(testGeojson);
-            }
+            if (!isValid) throw new GeoJsonValidationException("Invalid GeoJSON object.");
+
+            if (type == "Polygon") ValidatePolygonCoordinates(testGeojson);
         }
 
         private static void ValidateSpecialCase(JObject testGeojson)
         {
-            var type = testGeojson["type"].ToString();
+            var type = testGeojson["type"]!.ToString();
             switch (type)
             {
                 case "GeometryCollection":
                 {
-                    if (!testGeojson.TryGetValue("geometries", out var geometriesToken) || geometriesToken.Type != JTokenType.Array)
-                    {
-                        throw new GeoJsonValidationException("A GeometryCollection must have a 'geometries' property of type array.");
-                    }
+                    if (!testGeojson.TryGetValue("geometries", out var geometriesToken) ||
+                        geometriesToken.Type != JTokenType.Array)
+                        throw new GeoJsonValidationException(
+                            "A GeometryCollection must have a 'geometries' property of type array.");
                     foreach (var geometry in geometriesToken)
-                    {
                         if (geometry != null)
-                        {
                             Validate(geometry);
-                        }
-                    }
 
                     break;
                 }
@@ -246,34 +235,26 @@ namespace SphereKit
 
         private static void ValidatePolygonCoordinates(JObject polygon)
         {
-            if (!polygon.TryGetValue("coordinates", out var coordinatesToken) || coordinatesToken.Type != JTokenType.Array)
-            {
+            if (!polygon.TryGetValue("coordinates", out var coordinatesToken) ||
+                coordinatesToken.Type != JTokenType.Array)
                 throw new GeoJsonValidationException("Polygon must have 'coordinates' array.");
-            }
 
             foreach (var ring in coordinatesToken)
             {
                 var ringArray = ring as JArray;
                 if (ringArray == null || ringArray.Count < 4)
-                {
                     throw new GeoJsonValidationException("Each ring of a Polygon must have at least 4 coordinates.");
-                }
 
                 var firstPoint = ringArray.First as JArray;
                 var lastPoint = ringArray.Last as JArray;
-                if (!ArePointsEqual(firstPoint, lastPoint))
-                {
+                if (!ArePointsEqual(firstPoint!, lastPoint!))
                     throw new GeoJsonValidationException("A Polygon's first and last points must be equivalent.");
-                }
             }
         }
 
         private static bool ArePointsEqual(JArray point1, JArray point2)
         {
-            if (point1 == null || point2 == null || point1.Count != point2.Count)
-            {
-                return false;
-            }
+            if (point1.Count != point2.Count) return false;
 
             return !point1.Where((t, i) => !JToken.DeepEquals(t, point2[i])).Any();
         }

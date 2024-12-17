@@ -1,8 +1,10 @@
 using System.Collections.Generic;
-using UnityEngine;
 
 namespace SphereKit
 {
+    /// <summary>
+    /// Represents a logical group of documents.
+    /// </summary>
     public class Collection
     {
         public CollectionReference Reference { get; }
