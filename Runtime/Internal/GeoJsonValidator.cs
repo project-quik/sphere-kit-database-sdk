@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json.Linq;
-using Newtonsoft.Json.Schema;
 
 #pragma warning disable CS0618 // Type or member is obsolete
 
@@ -16,7 +15,7 @@ namespace SphereKit
         }
     }
 
-    public class GeoJsonValidator
+    public static class GeoJsonValidator
     {
         private const string position = @"{
             ""type"": ""array"",
@@ -147,7 +146,7 @@ namespace SphereKit
                     ""type"": ""array"",
                     ""items"": {{
                         ""oneOf"": [
-                            {_point}
+                            {_point},
                             {_multiPoint},
                             {_lineString},
                             {_multiLineString},
@@ -165,13 +164,13 @@ namespace SphereKit
 
         private static readonly Dictionary<string, JsonSchema> _allGeojsonTypes = new()
         {
-            { "Point", JsonSchema.Parse(_point) },
-            { "MultiPoint", JsonSchema.Parse(_multiPoint) },
-            { "LineString", JsonSchema.Parse(_lineString) },
-            { "MultiLineString", JsonSchema.Parse(_multiLineString) },
-            { "Polygon", JsonSchema.Parse(_polygon) },
-            { "MultiPolygon", JsonSchema.Parse(_multiPolygon) },
-            { "GeometryCollection", JsonSchema.Parse(_geometryCollection) }
+            { "Point", JsonSchemaParser.Parse(_point) },
+            { "MultiPoint", JsonSchemaParser.Parse(_multiPoint) },
+            { "LineString", JsonSchemaParser.Parse(_lineString) },
+            { "MultiLineString", JsonSchemaParser.Parse(_multiLineString) },
+            { "Polygon", JsonSchemaParser.Parse(_polygon) },
+            { "MultiPolygon", JsonSchemaParser.Parse(_multiPolygon) },
+            { "GeometryCollection", JsonSchemaParser.Parse(_geometryCollection) }
         };
 
         public static void Validate(object value, string[]? supportedTypes = null)
@@ -192,45 +191,21 @@ namespace SphereKit
             if (!geojsonTypes.ContainsKey(type))
                 throw new GeoJsonValidationException($"\"{type}\" is not a valid GeoJSON type for this operation.");
 
-            var isValid = false;
+            bool isValid;
 
-            if (type == "GeometryCollection")
-                ValidateSpecialCase(testGeojson);
-            else
-                try
-                {
-                    // Validate the GeoJSON object using newtonsoft.json
-                    var schema = geojsonTypes[type];
-                    isValid = testGeojson.IsValid(schema);
-                }
-                catch (JsonSchemaException ex)
-                {
-                    throw new GeoJsonValidationException("Invalid GeoJSON object: " + ex.Message);
-                }
+            try
+            {
+                var schema = geojsonTypes[type];
+                isValid = schema.Validate(testGeojson);
+            }
+            catch (Exception ex)
+            {
+                throw new GeoJsonValidationException("Invalid GeoJSON object: " + ex.Message);
+            }
 
             if (!isValid) throw new GeoJsonValidationException("Invalid GeoJSON object.");
 
             if (type == "Polygon") ValidatePolygonCoordinates(testGeojson);
-        }
-
-        private static void ValidateSpecialCase(JObject testGeojson)
-        {
-            var type = testGeojson["type"]!.ToString();
-            switch (type)
-            {
-                case "GeometryCollection":
-                {
-                    if (!testGeojson.TryGetValue("geometries", out var geometriesToken) ||
-                        geometriesToken.Type != JTokenType.Array)
-                        throw new GeoJsonValidationException(
-                            "A GeometryCollection must have a 'geometries' property of type array.");
-                    foreach (var geometry in geometriesToken)
-                        if (geometry != null)
-                            Validate(geometry);
-
-                    break;
-                }
-            }
         }
 
         private static void ValidatePolygonCoordinates(JObject polygon)
