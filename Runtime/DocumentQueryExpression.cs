@@ -3,11 +3,11 @@ using System;
 #nullable enable
 namespace SphereKit
 {
-    public class DocumentQueryProjection
+    public class DocumentQueryExpression
     {
         public string Field;
-        
-        public DocumentQueryProjection(string field)
+
+        public DocumentQueryExpression(string field)
         {
             Field = field;
         }

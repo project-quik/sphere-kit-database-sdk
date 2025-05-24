@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using Unity.Android.Gradle.Manifest;
 
 #nullable enable
 namespace SphereKit
@@ -113,7 +115,7 @@ namespace SphereKit
         /// <returns></returns>
         public static DocumentQueryOperation GreaterThan(string? field, object value)
         {
-            if (value is not DocumentQueryProjection) CheckNumberValue(value);
+            if (value is not DocumentQueryExpression) CheckNumberValue(value);
 
             return new DocumentQueryOperation(DocumentQueryOperationType.GreaterThan, field, value);
         }
@@ -126,7 +128,7 @@ namespace SphereKit
         /// <returns></returns>
         public static DocumentQueryOperation GreaterThanOrEqual(string? field, object value)
         {
-            if (value is not DocumentQueryProjection) CheckNumberValue(value);
+            if (value is not DocumentQueryExpression) CheckNumberValue(value);
 
             return new DocumentQueryOperation(DocumentQueryOperationType.GreaterThanOrEqual, field, value);
         }
@@ -139,7 +141,7 @@ namespace SphereKit
         /// <returns></returns>
         public static DocumentQueryOperation LessThan(string? field, object value)
         {
-            if (value is not DocumentQueryProjection) CheckNumberValue(value);
+            if (value is not DocumentQueryExpression) CheckNumberValue(value);
 
             return new DocumentQueryOperation(DocumentQueryOperationType.LessThan, field, value);
         }
@@ -152,7 +154,7 @@ namespace SphereKit
         /// <returns></returns>
         public static DocumentQueryOperation LessThanOrEqual(string? field, object value)
         {
-            if (value is not DocumentQueryProjection) CheckNumberValue(value);
+            if (value is not DocumentQueryExpression) CheckNumberValue(value);
 
             return new DocumentQueryOperation(DocumentQueryOperationType.LessThanOrEqual, field, value);
         }
@@ -165,7 +167,7 @@ namespace SphereKit
         /// <returns></returns>
         public static DocumentQueryOperation In(string? field, object value)
         {
-            if (value is not DocumentQueryProjection) CheckArrayValue(value);
+            if (value is not DocumentQueryExpression) CheckArrayValue(value);
 
             return new DocumentQueryOperation(DocumentQueryOperationType.In, field, value);
         }
@@ -178,7 +180,7 @@ namespace SphereKit
         /// <returns></returns>
         public static DocumentQueryOperation NotIn(string? field, object value)
         {
-            if (value is not DocumentQueryProjection) CheckArrayValue(value);
+            if (value is not DocumentQueryExpression) CheckArrayValue(value);
 
             return new DocumentQueryOperation(DocumentQueryOperationType.NotIn, field, value);
         }
@@ -235,11 +237,14 @@ namespace SphereKit
         /// <exception cref="ArgumentException">Cannot divide by zero.</exception>
         public static DocumentQueryOperation Modulo(string? field, object divisor, object remainder)
         {
-            CheckNumberValue(divisor);
-            if ((int)divisor == 0)
-                throw new ArgumentException("Cannot divide by zero.");
+            if (divisor is not DocumentQueryExpression)
+            {
+                CheckNumberValue(divisor);
+                if ((int)divisor == 0)
+                    throw new ArgumentException("Cannot divide by zero.");
+            }
 
-            CheckNumberValue(remainder);
+            if (remainder is not DocumentQueryExpression) CheckNumberValue(remainder);
 
             return new DocumentQueryOperation(DocumentQueryOperationType.Modulo, field, new[] { divisor, remainder });
         }
@@ -264,7 +269,7 @@ namespace SphereKit
         /// <returns></returns>
         public static DocumentQueryOperation GeoIntersects(string? field, object geometry)
         {
-            GeoJsonValidator.Validate(geometry);
+            if (geometry is not DocumentQueryExpression) GeoJsonValidator.Validate(geometry);
 
             return new DocumentQueryOperation(DocumentQueryOperationType.GeoIntersects, field,
                 new Dictionary<string, object>
@@ -282,7 +287,8 @@ namespace SphereKit
         /// <returns></returns>
         public static DocumentQueryOperation GeoWithin(string? field, object geometry)
         {
-            GeoJsonValidator.Validate(geometry, new[] { "Polygon", "MultiPolygon" });
+            if (geometry is not DocumentQueryExpression)
+                GeoJsonValidator.Validate(geometry, new[] { "Polygon", "MultiPolygon" });
 
             return new DocumentQueryOperation(DocumentQueryOperationType.GeoWithin, field,
                 new Dictionary<string, object>
@@ -300,10 +306,10 @@ namespace SphereKit
         /// <param name="minDistance">The minimum distance the GeoJSON field can be from this GeoJSON object.</param>
         /// <param name="maxDistance">The maximum distance the GeoJSON field can be from this GeoJSON object.</param>
         /// <returns></returns>
-        public static DocumentQueryOperation GeoNear(string? field, object geometry, long? minDistance = null,
-            long? maxDistance = null)
+        public static DocumentQueryOperation GeoNear(string? field, object geometry, object? minDistance = null,
+            object? maxDistance = null)
         {
-            GeoJsonValidator.Validate(geometry, new[] { "Point" });
+            if (geometry is not DocumentQueryExpression) GeoJsonValidator.Validate(geometry, new[] { "Point" });
 
             var operatorValue = new Dictionary<string, object>
             {
@@ -312,13 +318,13 @@ namespace SphereKit
 
             if (minDistance != null)
             {
-                CheckNumberValue(minDistance);
+                if (minDistance is not DocumentQueryExpression) CheckNumberValue(minDistance);
                 operatorValue.Add("$minDistance", minDistance);
             }
 
             if (maxDistance != null)
             {
-                CheckNumberValue(maxDistance);
+                if (maxDistance is not DocumentQueryExpression) CheckNumberValue(maxDistance);
                 operatorValue.Add("$maxDistance", maxDistance);
             }
 
@@ -333,7 +339,7 @@ namespace SphereKit
         /// <returns></returns>
         public static DocumentQueryOperation ContainsAllOf(string? field, object values)
         {
-            CheckArrayValue(values);
+            if (values is not DocumentQueryExpression) CheckArrayValue(values);
 
             return new DocumentQueryOperation(DocumentQueryOperationType.ContainsAllOf, field, values);
         }
@@ -356,9 +362,9 @@ namespace SphereKit
         /// <param name="field">The field path.</param>
         /// <param name="size">The expected number of elements.</param>
         /// <returns></returns>
-        public static DocumentQueryOperation ArraySizeIs(string? field, long size)
+        public static DocumentQueryOperation ArraySizeIs(string? field, object size)
         {
-            CheckNumberValue(size);
+            if (size is not DocumentQueryExpression) CheckNumberValue(size);
 
             return new DocumentQueryOperation(DocumentQueryOperationType.ArraySizeIs, field, size);
         }
@@ -386,7 +392,7 @@ namespace SphereKit
                 DocumentQueryOperationType.MatchesRegex => "$regex",
                 DocumentQueryOperationType.GeoIntersects => "$geoIntersects",
                 DocumentQueryOperationType.GeoWithin => "$geoWithin",
-                DocumentQueryOperationType.GeoNear => "nearSphere",
+                DocumentQueryOperationType.GeoNear => "$nearSphere",
                 DocumentQueryOperationType.ContainsAllOf => "$all",
                 DocumentQueryOperationType.ElementMatches => "$elemMatch",
                 DocumentQueryOperationType.ArraySizeIs => "$size",
@@ -398,99 +404,69 @@ namespace SphereKit
         }
 
         /// <summary>
-        /// This method converts a dictionary of queries into a dictionary of request data that can be sent to the server.
+        /// Converts an array of DocumentQueryOperation objects to a JSON-friendly query structure (without expressions).
+        /// This only works for operations with no expressions.
         /// </summary>
-        /// <param name="queries">A dictionary of queries to convert into request data.</param>
-        /// <param name="isElementMatches">Whether the query is in an element match query</param>
-        /// <returns>A dictionary of request data that can be sent to the server.</returns>
-        internal static Dictionary<string, object> ConvertQueryToRequestData(DocumentQueryOperation[] queries,
+        /// <param name="queries">The array of queries to be converted.</param>
+        /// <param name="isElementMatches">Whether the query is in an element match query.</param>
+        /// <returns>Relevant JSON-friendly query data that can be used in the request body.</returns>
+        private static Dictionary<string, object> ConvertQueryToRequestDataNoExpr(DocumentQueryOperation[] queries,
             bool isElementMatches = false)
         {
             // This method resolves the value of an operation in a query to a format acceptable by the server.
             //
             // Parameters:
+            // - operationType: The type of the operation.
             // - operationValue: The value of the operation.
             //
             // Returns: The resolved value of the operation to be added to the request data.
             object ResolveOperationValue(DocumentQueryOperationType operationType, object operationValue)
             {
-                switch (operationValue)
+                if (isElementMatches && operationValue is DocumentQueryExpression)
+                    throw new ArgumentException(
+                        "Element matches cannot contain expressions.");
+
+                if (operationValue is Array or List<object> &&
+                    (operationValue as object[])!.All(item => item is DocumentQueryOperation))
                 {
-                    // Convert a list of projections into the $eval operation.
-                    case DocumentQueryProjection[] or List<DocumentQueryProjection>:
+                    // Convert an array of operations
+                    var queryList = (operationValue as DocumentQueryOperation[])!;
+
+                    if (operationType == DocumentQueryOperationType.ElementMatches)
+                        // For $elemMatch, recursively call convertQueryToRequestData with isElementMatches = true
+                        return ConvertQueryToRequestDataNoExpr(queryList, true);
+
+                    // For logical operators ($and, $or, $nor), convert each operation in the array
+                    return queryList.Select(eachQuery =>
                     {
-                        var evalOperationValue = new Dictionary<string, object>
+                        var isLogical = eachQuery.OperationType is DocumentQueryOperationType.And
+                            or DocumentQueryOperationType.Nor or DocumentQueryOperationType.Or;
+
+                        if (!isElementMatches && !isLogical && string.IsNullOrEmpty(eachQuery.Field))
+                            throw new ArgumentException(
+                                "Field must be specified for all operations besides logical operations and operations in element matches.");
+
+                        var innerResolvedValue = ResolveOperationValue(eachQuery.OperationType, eachQuery.Value);
+                        var innerOperation = new Dictionary<string, object>
                         {
-                            { "$eval", new List<string>() }
+                            { GetStringOperationType(eachQuery.OperationType), innerResolvedValue }
                         };
-                        List<DocumentQueryProjection> projections;
-                        if (operationValue is DocumentQueryProjection[] projectionArray)
-                            projections = new List<DocumentQueryProjection>(projectionArray);
-                        else
-                            projections = (List<DocumentQueryProjection>)operationValue;
 
-                        foreach (var projection in projections)
-                            ((List<string>)evalOperationValue["$eval"]).Add($"${projection.Field}");
-
-                        operationValue = evalOperationValue;
-                        break;
-                    }
-                    // Convert a single projection into the $eval operation.
-                    case DocumentQueryProjection projection:
-                    {
-                        var evalOperationValue = new Dictionary<string, object>
+                        if (string.IsNullOrEmpty(eachQuery.Field))
+                            return innerOperation;
+                        return new Dictionary<string, object>
                         {
-                            { "$eval", $"${projection.Field}" }
+                            { eachQuery.Field, innerOperation }
                         };
-                        operationValue = evalOperationValue;
-                        break;
-                    }
-                    // Convert an array of operations into a list of dictionaries with the operation type as the key, or a dictionary of operations if these are below an element match.
-                    case DocumentQueryOperation[] queryList:
-                    {
-                        if (operationType == DocumentQueryOperationType.ElementMatches)
-                        {
-                            operationValue = ConvertQueryToRequestData(queryList, true);
-                            break;
-                        }
-
-                        operationValue = Array.ConvertAll(queryList, eachQuery =>
-                        {
-                            var isLogicalOperation = eachQuery.OperationType is DocumentQueryOperationType.And
-                                or DocumentQueryOperationType.Nor or DocumentQueryOperationType.Or;
-                            if (!isElementMatches && !isLogicalOperation && string.IsNullOrEmpty(eachQuery.Field))
-                                throw new ArgumentException(
-                                    "Field must be specified for all operations besides logical operations and operations in element matches.");
-
-                            var innerOperationValue = new Dictionary<string, object>
-                            {
-                                {
-                                    GetStringOperationType(eachQuery.OperationType),
-                                    ResolveOperationValue(eachQuery.OperationType, eachQuery.Value)
-                                }
-                            };
-
-                            if (string.IsNullOrEmpty(eachQuery.Field)) return innerOperationValue;
-
-                            return new Dictionary<string, object>
-                            {
-                                {
-                                    eachQuery.Field,
-                                    innerOperationValue
-                                }
-                            };
-                        });
-
-                        break;
-                    }
+                    });
                 }
 
+                // Return other values directly
                 return operationValue;
             }
 
             var queryRequestData = new Dictionary<string, object>();
 
-            // Resolve each operation in the query to a format acceptable by the server
             foreach (var eachQuery in queries)
             {
                 var field = eachQuery.Field;
@@ -498,25 +474,109 @@ namespace SphereKit
                 var isLogicalOperation = operationType is DocumentQueryOperationType.And
                     or DocumentQueryOperationType.Nor or DocumentQueryOperationType.Or;
                 var operationKeyStr = GetStringOperationType(operationType);
-                var operationValue = ResolveOperationValue(operationType, eachQuery.Value);
+                var resolvedValue = ResolveOperationValue(operationType, eachQuery.Value);
 
                 if ((isElementMatches || isLogicalOperation) && string.IsNullOrEmpty(field))
                 {
-                    queryRequestData[operationKeyStr] = operationValue;
-                    continue;
+                    // Handle logical operators or operations directly within $elemMatch
+                    queryRequestData[operationKeyStr] = resolvedValue;
                 }
-
-                if (string.IsNullOrEmpty(field))
+                else if (!string.IsNullOrEmpty(field))
+                {
+                    // Handle standard field operations { field: { $op: value } }
+                    // If the field already exists (e.g., multiple conditions on the same field), merge the operations.
+                    if (!queryRequestData.ContainsKey(field))
+                        queryRequestData[field] = new Dictionary<string, object>();
+                    (queryRequestData[field] as Dictionary<string, object>)![operationKeyStr] = resolvedValue;
+                }
+                else
+                {
+                    // Field is required for non-logical operations outside of $elemMatch
                     throw new ArgumentException(
                         "Field must be specified for all operations besides logical operations and operations in element matches.");
-
-                queryRequestData[field] = new Dictionary<string, object>
-                {
-                    { GetStringOperationType(operationType), operationValue }
-                };
+                }
             }
 
             return queryRequestData;
+        }
+
+        /// <summary>
+        /// Converts an array of DocumentQueryOperation objects to a request body.
+        /// </summary>
+        /// <param name="queries">The array of queries to be converted.</param>
+        /// <returns>The request body that can be used for getting or updating documents.</returns>
+        internal static Dictionary<string, object> ConvertQueryToRequestData(DocumentQueryOperation[] queries)
+        {
+            // This method resolves the value of an operation in a query to a format acceptable by the server.
+            //
+            // Parameters:
+            // - operationValue: The value of the operation.
+            //
+            // Returns: The resolved value of the operation to be added to the request data.
+            object ResolveOperationValue(object operationValue)
+            {
+                if (operationValue is DocumentQueryExpression projection) return $"${projection.Field}";
+
+                return operationValue;
+            }
+
+            // This method resolves a query to a format acceptable by the server.
+            //
+            // Parameters:
+            // - query: The query to resolve.
+            //
+            // Returns: The resolved query as a dictionary.
+            Dictionary<string, object> ResolveQuery(DocumentQueryOperation query)
+            {
+                var operationType = query.OperationType;
+                var operationTypeStr = GetStringOperationType(operationType);
+                var resolvedValue = ResolveOperationValue(query.Value);
+
+                var isLogical = operationType is DocumentQueryOperationType.And
+                    or DocumentQueryOperationType.Nor or DocumentQueryOperationType.Or;
+                if (!isLogical && string.IsNullOrEmpty(query.Field))
+                    throw new ArgumentException(
+                        "Field must be specified for all operations besides logical operations and operations in element matches.");
+
+                if (isLogical)
+                    // For logical operators ($and, $or, $nor), convert each operation in the array
+                    return new Dictionary<string, object>
+                    {
+                        {
+                            operationTypeStr,
+                            (query.Value as DocumentQueryOperation[])!.Select(ResolveQuery)
+                        }
+                    };
+
+                if (operationType == DocumentQueryOperationType.ElementMatches)
+                {
+                    if (string.IsNullOrEmpty(query.Field))
+                        throw new ArgumentException("Field must be specified for element matches operations.");
+
+                    // For $elemMatch, recursively call convertQueryToRequestData without expressions with isElementMatches as true
+                    return ConvertQueryToRequestDataNoExpr(new[] { query }, true);
+                }
+
+                // For standard field operations { field: { $op: value } }
+                return new Dictionary<string, object>
+                {
+                    {
+                        "$expr", new Dictionary<string, object>
+                        {
+                            { operationTypeStr, new[] { $"${query.Field}", resolvedValue } }
+                        }
+                    }
+                };
+            }
+
+            if (queries.Length == 0) return new Dictionary<string, object>();
+
+            var exprRequestData = queries.Select(ResolveQuery).ToList();
+
+            return new Dictionary<string, object>
+            {
+                { "$and", exprRequestData }
+            };
         }
     }
 
