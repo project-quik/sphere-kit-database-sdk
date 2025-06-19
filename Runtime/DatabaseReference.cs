@@ -1,3 +1,4 @@
+#nullable enable
 using System.Linq;
 
 namespace SphereKit
@@ -6,6 +7,7 @@ namespace SphereKit
     {
         public string Path { get; }
         public string Id => Path.Split("/").Last();
+        public virtual DatabaseReference? Parent { get; set; }
         public Database Database { get; }
 
         protected DatabaseReference(string path, Database database)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
 
@@ -8,6 +9,21 @@ namespace SphereKit
 {
     public class CollectionReference : DatabaseReference
     {
+        public new DocumentReference? Parent
+        {
+            get
+            {
+                var segments = Path.Split('/');
+                if (segments.Length < 3)
+                {
+                    return null;
+                }
+
+                var parentPath = string.Join("/", segments.SkipLast(1));
+                return new DocumentReference(parentPath, Database);
+            }
+        }
+        
         public CollectionReference(string path, Database database) : base(path, database)
         {
             if (path.Length == 0) throw new ArgumentException("CollectionReference path must not be empty.");
