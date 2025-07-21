@@ -27,6 +27,9 @@ namespace SphereKit
                     case "initial":
                         Type = MultiDocumentChangeType.Initial;
                         break;
+                    case "insert":
+                        Type = MultiDocumentChangeType.Insert;
+                        break;
                     case "update":
                         Type = MultiDocumentChangeType.Update;
                         break;
@@ -67,6 +70,7 @@ namespace SphereKit
     public enum MultiDocumentChangeType
     {
         Initial,
+        Insert,
         Update,
         Delete
     }

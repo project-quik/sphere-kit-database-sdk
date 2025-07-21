@@ -159,10 +159,10 @@ namespace SphereKit
         }
 
         /// <summary>
-        /// Checks if the value is present in the array field.
+        /// Checks if the value of the field is equal to any of the elements in the provided array.
         /// </summary>
         /// <param name="field">The field path.</param>
-        /// <param name="value">The value to check.</param>
+        /// <param name="value">An array of values to match with the value of the field.</param>
         /// <returns></returns>
         public static DocumentQueryOperation In(string? field, object value)
         {
@@ -172,10 +172,10 @@ namespace SphereKit
         }
 
         /// <summary>
-        /// Checks if the value is not present in the array field.
+        /// Checks if the value of the field is not equal to any of the elements in the provided array.
         /// </summary>
         /// <param name="field">The field path.</param>
-        /// <param name="value">The value to check.</param>
+        /// <param name="value">An array of values to match with the value of the field.</param>
         /// <returns></returns>
         public static DocumentQueryOperation NotIn(string? field, object value)
         {

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using NativeWebSocket;
@@ -20,19 +21,82 @@ namespace SphereKit
         private readonly HttpClient _httpClient = new();
         private readonly string? _id;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Database"/> class with the specified database ID.
+        /// If the database ID is not provided, it uses the default database for your project.
+        /// </summary>
+        /// <param name="id">The ID of the database (optional).</param>
         public Database(string? id = null)
         {
             _id = id ?? CoreServices.DatabaseSettings.DatabaseId;
         }
 
-        public CollectionReference Collection(string path)
+        /// <summary>
+        /// Returns a collection reference for the given path. Use with caution, as the path is not validated and can lead to injected paths if not properly sanitized.
+        /// Prefer using <see cref="Collection(string)"/> instead, which validates the path part, including checking for slashes.
+        /// </summary>
+        /// <param name="path">The full path to the collection.</param>
+        /// <returns>A collection reference to the collection at this path.</returns>
+        public CollectionReference CollectionFromPath(string path)
         {
+            if (string.IsNullOrEmpty(path))
+            {
+                throw new ArgumentException("Collection path must not be null or empty.", nameof(path));
+            }
+            foreach (var pathPart in path.Split("/"))
+            {
+                ValidatePathPart(pathPart);
+            }
             return new CollectionReference(path, this);
         }
 
-        public DocumentReference Document(string path)
+        /// <summary>
+        /// Returns a collection reference for the given path part. Validates the path part to ensure it does not contain slashes (preventing injection attacks) and meets other requirements.
+        /// </summary>
+        /// <param name="id">The ID of the collection.</param>
+        /// <returns>A collection reference to the collection with this ID.</returns>
+        public CollectionReference Collection(string id)
         {
+            ValidatePathPart(id);
+            return new CollectionReference(id, this);
+        }
+
+        /// <summary>
+        /// Returns a document reference for the given path. Use with caution, as the path is not validated and can lead to injected paths if not properly sanitized.
+        /// Prefer using <see cref="Collection(string)"/> instead, together with the Document method in <see cref="CollectionReference"/>, which validates the path part, including checking for slashes.
+        /// </summary>
+        /// <param name="path">The full path to the document.</param>
+        /// <returns>A document reference to the document at this path.</returns>
+        public DocumentReference DocumentFromPath(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                throw new ArgumentException("Document path must not be null or empty.", nameof(path));
+            }
+            foreach (var pathPart in path.Split("/"))
+            {
+                ValidatePathPart(pathPart);
+            }
             return new DocumentReference(path, this);
+        }
+
+        /// <summary>
+        /// Validates a path part to ensure it does not contain slashes, does not start with $ or _, does not contain spaces, and is not null or empty.
+        /// </summary>
+        /// <param name="part">The path part to validate.</param>
+        /// <returns>Whether the path is valid.</returns>
+        /// <exception cref="ArgumentException">Thrown if the path is invalid with the reason.</exception>
+        internal static bool ValidatePathPart(string part)
+        {
+            if (string.IsNullOrEmpty(part))
+                throw new ArgumentException("Path part must not be null or empty.", nameof(part));
+            if (part.Contains("/"))
+                throw new ArgumentException("Path part must not contain slashes.", nameof(part));
+            if (part.Contains(" "))
+                throw new ArgumentException("Path part must not contain spaces.", nameof(part));
+            if (part.StartsWith("$") || part.StartsWith("_"))
+                throw new ArgumentException("Path part must not start with $ or _.", nameof(part));
+            return true;
         }
 
         /// <summary>
@@ -184,7 +248,7 @@ namespace SphereKit
 
         /// <summary>
         /// Listens to changes in documents of a collection.<br></br>
-        /// Changes notified are document update, inserts and deletes.<br></br>
+        /// Changes notified are document updates, inserts and deletes.<br></br>
         /// Only either <see cref="includeFields"/> or <see cref="excludeFields"/> can be specified at a time.
         /// </summary>
         /// <param name="reference">The collection to listen to documents.</param>
@@ -199,7 +263,7 @@ namespace SphereKit
         /// <param name="sendInitialData">Whether to send all matching documents when the listener is first set up.</param>
         /// <exception cref="ArgumentException">Cannot include and exclude fields in the same query.</exception>
         /// <exception cref="WebSocketException">Could not connect to the document listener.</exception>
-        internal async Task ListenDocuments(CollectionReference reference, Action<MultiDocumentChange> onData,
+        internal Func<Task> ListenDocuments(CollectionReference reference, Action<MultiDocumentChange> onData,
             Action<Exception> onError,
             Action onClosed, DocumentQueryOperation[]? query = null, string[]? includeFields = null,
             string[]? excludeFields = null,
@@ -306,8 +370,8 @@ namespace SphereKit
                 if (e == WebSocketCloseCode.Abnormal && autoReconnect && firstOpened)
                 {
                     Debug.Log("Websocket connection closed abnormally. Reconnecting...");
-                    Task.Delay(TimeSpan.FromSeconds(Math.Min(20, Math.Pow(2, connectionAttempts)))).ContinueWith(
-                        async _ =>
+                    Task.Delay(TimeSpan.FromSeconds(Math.Min(20, Math.Pow(2, connectionAttempts))))
+                        .ContinueWith(async _ =>
                         {
                             connectionAttempts++;
                             await websocket.Connect();
@@ -328,7 +392,9 @@ namespace SphereKit
             };
             timer.Enabled = true;
 
-            await websocket.Connect();
+            _ = websocket.Connect();
+            
+            return websocket.Close;
         }
 
         /// <summary>
@@ -347,6 +413,11 @@ namespace SphereKit
                     return;
                 case > 50:
                     throw new ArgumentException("The maximum number of documents that can be set at once is 50.");
+            }
+
+            foreach (var documentId in documents.Keys)
+            {
+                ValidatePathPart(documentId);
             }
 
             CoreServices.CheckInitialized();
@@ -461,9 +532,9 @@ namespace SphereKit
         /// <param name="onError">The callback when an error is received.</param>
         /// <param name="onClosed">The callback when the connection is closed and will not be restored.</param>
         /// <param name="autoReconnect">Whether to automatically reconnect to the server when the internet connection drops.</param>
-        /// <param name="sendInitialData">Whether to send the document in its current state (if it exists) when the listener is first set up.</param>
+        /// <param name="sendInitialData">Whether to send the document in its current state (if it exists) when the listener is first set up. The listener will close after receiving the initial data if the document does not exist.</param>
         /// <exception cref="WebSocketException">Could not connect to the document listener.</exception>
-        internal async Task ListenDocument(DocumentReference reference, Action<SingleDocumentChange> onData,
+        internal Func<Task> ListenDocument(DocumentReference reference, Action<SingleDocumentChange> onData,
             Action<Exception> onError,
             Action onClosed,
             bool autoReconnect = true,
@@ -541,8 +612,8 @@ namespace SphereKit
                 if (e == WebSocketCloseCode.Abnormal && autoReconnect && firstOpened)
                 {
                     Debug.Log("Websocket connection closed abnormally. Reconnecting...");
-                    Task.Delay(TimeSpan.FromSeconds(Math.Min(20, Math.Pow(2, connectionAttempts)))).ContinueWith(
-                        async _ =>
+                    Task.Delay(TimeSpan.FromSeconds(Math.Min(20, Math.Pow(2, connectionAttempts))))
+                        .ContinueWith(async _ =>
                         {
                             connectionAttempts++;
                             await websocket.Connect();
@@ -563,7 +634,9 @@ namespace SphereKit
             };
             timer.Enabled = true;
 
-            await websocket.Connect();
+            _ = websocket.Connect();
+            
+            return websocket.Close;
         }
 
         /// <summary>
@@ -590,7 +663,7 @@ namespace SphereKit
         /// Updates a single document.
         /// </summary>
         /// <param name="reference">The reference to the document to update.</param>
-        /// <param name="update">The update specification, with field name as key and operation as value.</param>
+        /// <param name="update">The update specification, with field path as key and operation as value.</param>
         internal async Task UpdateDocument(DocumentReference reference,
             Dictionary<string, DocumentDataOperation> update)
         {
