@@ -13,25 +13,29 @@ namespace SphereKit
             get
             {
                 var segments = Path.Split('/');
-                if (segments.Length < 2)
-                {
-                    return null;
-                }
+                if (segments.Length < 2) return null;
 
                 var parentPath = string.Join("/", segments.SkipLast(1));
                 return new CollectionReference(parentPath, Database);
             }
         }
-        
-        public DocumentReference(string path, Database database) : base(path, database)
+
+        internal DocumentReference(string path, Database database) : base(path, database)
         {
             if (path.Length == 0) throw new ArgumentException("DocumentReference path must not be empty.");
             if (path.Split("/").Length % 2 != 0)
                 throw new ArgumentException("DocumentReference path must have an even number of segments.");
         }
 
+        /// <summary>
+        /// Gets a reference to a sub-collection in this document by its ID.
+        /// </summary>
+        /// <param name="id">The ID of the collection.</param>
+        /// <returns>The reference to the collection.</returns>
+        /// <exception cref="ArgumentException">If the ID is invalid or contains slashes (which can cause injection attacks).</exception>
         public CollectionReference Collection(string id)
         {
+            Database.ValidatePathPart(id);
             return new CollectionReference($"{Path}/{id}", Database);
         }
 
@@ -48,16 +52,17 @@ namespace SphereKit
         /// Listens to changes to this document.<br></br>
         /// Changes notified are only document update and inserts <b>(no delete)</b>.
         /// </summary>
-        /// <param name="onData">The callback when an update is received</param>
+        /// <param name="onData">The callback when an update is received.</param>
         /// <param name="onError">The callback when an error is received.</param>
         /// <param name="onClosed">The callback when the connection is closed and will not be restored.</param>
         /// <param name="autoReconnect">Whether to automatically reconnect to the server when the internet connection drops.</param>
-        /// <param name="sendInitialData">Whether to send the document in its current state (if it exists) when the listener is first set up.</param>
-        public void Listen(Action<SingleDocumentChange> onData, Action<Exception> onError,
+        /// <param name="sendInitialData">Whether to send the document in its current state (if it exists) when the listener is first set up. The listener will close after receiving the initial data if the document does not exist.</param>
+        /// <returns>A function to close the listener.</returns>
+        public Func<Task> Listen(Action<SingleDocumentChange> onData, Action<Exception> onError,
             Action onClosed, bool autoReconnect = true,
             bool sendInitialData = false)
         {
-            _ = Database.ListenDocument(this, onData, onError, onClosed, autoReconnect, sendInitialData);
+            return Database.ListenDocument(this, onData, onError, onClosed, autoReconnect, sendInitialData);
         }
 
         /// <summary>
@@ -72,7 +77,7 @@ namespace SphereKit
         /// <summary>
         /// Updates the data of this document.
         /// </summary>
-        /// <param name="update">The update specification, with field name as key and operation as value.</param>
+        /// <param name="update">The update specification, with field path as key and operation as value.</param>
         public async Task Update(Dictionary<string, DocumentDataOperation> update)
         {
             await Database.UpdateDocument(this, update);

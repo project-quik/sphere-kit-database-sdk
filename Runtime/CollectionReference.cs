@@ -14,25 +14,29 @@ namespace SphereKit
             get
             {
                 var segments = Path.Split('/');
-                if (segments.Length < 3)
-                {
-                    return null;
-                }
+                if (segments.Length < 3) return null;
 
                 var parentPath = string.Join("/", segments.SkipLast(1));
                 return new DocumentReference(parentPath, Database);
             }
         }
-        
-        public CollectionReference(string path, Database database) : base(path, database)
+
+        internal CollectionReference(string path, Database database) : base(path, database)
         {
             if (path.Length == 0) throw new ArgumentException("CollectionReference path must not be empty.");
             if (path.Split("/").Length % 2 == 0)
                 throw new ArgumentException("CollectionReference path must have an odd number of segments.");
         }
 
+        /// <summary>
+        /// Gets a reference to a document in this collection by its ID.
+        /// </summary>
+        /// <param name="id">The ID of the document.</param>
+        /// <returns>The reference to the document.</returns>
+        /// <exception cref="ArgumentException">If the ID is invalid or contains slashes (which can cause injection attacks).</exception>
         public DocumentReference Document(string id)
         {
+            Database.ValidatePathPart(id);
             return new DocumentReference($"{Path}/{id}", Database);
         }
 
@@ -81,13 +85,14 @@ namespace SphereKit
         /// <param name="sort">The sort specification for the documents (for initial data).</param>
         /// <param name="autoReconnect">Whether to automatically reconnect to the server when the internet connection drops.</param>
         /// <param name="sendInitialData">Whether to send all matching documents when the listener is first set up.</param>
-        public void ListenDocuments(Action<MultiDocumentChange> onData, Action<Exception> onError,
+        /// <returns>A function to close the listener.</returns>
+        public Func<Task> ListenDocuments(Action<MultiDocumentChange> onData, Action<Exception> onError,
             Action onClosed, DocumentQueryOperation[]? query = null, string[]? includeFields = null,
             string[]? excludeFields = null,
             Dictionary<string, FieldSortDirection>? sort = null, bool autoReconnect = true,
             bool sendInitialData = false)
         {
-            _ = Database.ListenDocuments(this, onData, onError, onClosed, query, includeFields, excludeFields, sort,
+            return Database.ListenDocuments(this, onData, onError, onClosed, query, includeFields, excludeFields, sort,
                 autoReconnect, sendInitialData);
         }
 
@@ -104,7 +109,7 @@ namespace SphereKit
         /// <summary>
         /// Updates matching documents in this collection.
         /// </summary>
-        /// <param name="update">The update specification, with field name as key and operation as value.</param>
+        /// <param name="update">The update specification, with field path as key and operation as value.</param>
         /// <param name="filter">The filters to find matching documents to update.</param>
         public async Task UpdateDocuments(Dictionary<string, DocumentDataOperation> update,
             DocumentQueryOperation[]? filter = null)

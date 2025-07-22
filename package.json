@@ -1,6 +1,6 @@
 {
     "name": "co.projectquik.spherekit.database",
-    "version": "0.0.1",
+    "version": "1.1.0",
     "description": "The Database SDK for Sphere Kit.",
     "displayName": "Sphere Kit Database",
     "keywords": ["server", "backend", "database", "db", "sphere", "kit"],

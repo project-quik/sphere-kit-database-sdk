@@ -27,6 +27,9 @@ namespace SphereKit
                     case "initial":
                         Type = SingleDocumentChangeType.Initial;
                         break;
+                    case "insert":
+                        Type = SingleDocumentChangeType.Insert;
+                        break;
                     case "update":
                         Type = SingleDocumentChangeType.Update;
                         break;
@@ -48,6 +51,7 @@ namespace SphereKit
     public enum SingleDocumentChangeType
     {
         Initial,
+        Insert,
         Update
     }
 }
