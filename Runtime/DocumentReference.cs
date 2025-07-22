@@ -57,6 +57,7 @@ namespace SphereKit
         /// <param name="onClosed">The callback when the connection is closed and will not be restored.</param>
         /// <param name="autoReconnect">Whether to automatically reconnect to the server when the internet connection drops.</param>
         /// <param name="sendInitialData">Whether to send the document in its current state (if it exists) when the listener is first set up. The listener will close after receiving the initial data if the document does not exist.</param>
+        /// <returns>A function to close the listener.</returns>
         public Func<Task> Listen(Action<SingleDocumentChange> onData, Action<Exception> onError,
             Action onClosed, bool autoReconnect = true,
             bool sendInitialData = false)

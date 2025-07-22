@@ -85,6 +85,7 @@ namespace SphereKit
         /// <param name="sort">The sort specification for the documents (for initial data).</param>
         /// <param name="autoReconnect">Whether to automatically reconnect to the server when the internet connection drops.</param>
         /// <param name="sendInitialData">Whether to send all matching documents when the listener is first set up.</param>
+        /// <returns>A function to close the listener.</returns>
         public Func<Task> ListenDocuments(Action<MultiDocumentChange> onData, Action<Exception> onError,
             Action onClosed, DocumentQueryOperation[]? query = null, string[]? includeFields = null,
             string[]? excludeFields = null,

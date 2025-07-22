@@ -37,6 +37,7 @@ namespace SphereKit
         /// </summary>
         /// <param name="path">The full path to the collection.</param>
         /// <returns>A collection reference to the collection at this path.</returns>
+        /// <exception cref="ArgumentException">If the path is invalid.</exception>
         public CollectionReference CollectionFromPath(string path)
         {
             if (string.IsNullOrEmpty(path))
@@ -55,6 +56,7 @@ namespace SphereKit
         /// </summary>
         /// <param name="id">The ID of the collection.</param>
         /// <returns>A collection reference to the collection with this ID.</returns>
+        /// <exception cref="ArgumentException">If the ID is invalid or contains slashes (which can cause injection attacks).</exception>
         public CollectionReference Collection(string id)
         {
             ValidatePathPart(id);
@@ -67,6 +69,7 @@ namespace SphereKit
         /// </summary>
         /// <param name="path">The full path to the document.</param>
         /// <returns>A document reference to the document at this path.</returns>
+        /// <exception cref="ArgumentException">If the path is invalid.</exception>
         public DocumentReference DocumentFromPath(string path)
         {
             if (string.IsNullOrEmpty(path))
@@ -261,6 +264,7 @@ namespace SphereKit
         /// <param name="sort">The sort specification for the documents (for initial data).</param>
         /// <param name="autoReconnect">Whether to automatically reconnect to the server when the internet connection drops.</param>
         /// <param name="sendInitialData">Whether to send all matching documents when the listener is first set up.</param>
+        /// <returns>A function to close the listener.</returns>
         /// <exception cref="ArgumentException">Cannot include and exclude fields in the same query.</exception>
         /// <exception cref="WebSocketException">Could not connect to the document listener.</exception>
         internal Func<Task> ListenDocuments(CollectionReference reference, Action<MultiDocumentChange> onData,
